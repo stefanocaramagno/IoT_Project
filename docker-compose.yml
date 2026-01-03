@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  mqtt-broker:
+    image: eclipse-mosquitto:2
+    container_name: mqtt-broker
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+
+  mas-core:
+    build:
+      context: ./mas
+    container_name: mas-core
+    restart: unless-stopped
+    depends_on:
+      - mqtt-broker
+
+  web-backend:
+    build:
+      context: ./web
+    container_name: web-backend
+    restart: unless-stopped
+    depends_on:
+      - mqtt-broker
+      - mas-core
+    ports:
+      - "8000:8000"
