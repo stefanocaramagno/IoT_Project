@@ -7,6 +7,10 @@ services:
     restart: unless-stopped
     ports:
       - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
 
   mas-core:
     build:
@@ -26,3 +30,19 @@ services:
       - mas-core
     ports:
       - "8000:8000"
+
+  sim-sensors:
+    build:
+      context: ./sims
+    container_name: sim-sensors
+    restart: unless-stopped
+    depends_on:
+      - mqtt-broker
+    environment:
+      - MQTT_BROKER_HOST=mqtt-broker
+      - MQTT_BROKER_PORT=1883
+      - PUBLISH_INTERVAL_SECONDS=5
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:
