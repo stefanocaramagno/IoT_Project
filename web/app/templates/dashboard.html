@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row mb-4">
+  <div class="col">
+    <h1 class="h3">Dashboard in tempo quasi reale</h1>
+    <p class="text-muted">
+      Panoramica sintetica degli eventi urbani rilevati dai sensori e delle azioni di coordinamento
+      tra i diversi quartieri.
+    </p>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-6 col-lg-3">
+    <div class="card stat-card">
+      <div class="card-body">
+        <h6 class="card-title text-uppercase text-muted mb-2">Eventi totali</h6>
+        <p class="display-6 mb-0">{{ events|length }}</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6 col-lg-3">
+    <div class="card stat-card">
+      <div class="card-body">
+        <h6 class="card-title text-uppercase text-muted mb-2">Azioni totali</h6>
+        <p class="display-6 mb-0">{{ actions|length }}</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6 col-lg-3">
+    <div class="card stat-card">
+      <div class="card-body">
+        <h6 class="card-title text-uppercase text-muted mb-2">Eventi per quartiere</h6>
+        <ul class="list-unstyled mb-0 small">
+          {% for district, count in events_per_district %}
+            <li><span class="fw-semibold">{{ district or "n/d" }}</span>: {{ count }}</li>
+          {% else %}
+            <li class="text-muted">Nessun dato disponibile</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6 col-lg-3">
+    <div class="card stat-card">
+      <div class="card-body">
+        <h6 class="card-title text-uppercase text-muted mb-2">Eventi per severità</h6>
+        <ul class="list-unstyled mb-0 small">
+          {% for severity, count in events_per_severity %}
+            <li>
+              <span class="badge severity-badge severity-{{ severity|lower }}">{{ severity }}</span>
+              &nbsp; {{ count }}
+            </li>
+          {% else %}
+            <li class="text-muted">Nessun dato disponibile</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">Ultimi eventi</span>
+        <a href="/events" class="btn btn-sm btn-outline-secondary">Vedi tutti</a>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0 align-middle">
+            <thead class="table-light">
+              <tr>
+                <th scope="col">Quartiere</th>
+                <th scope="col">Tipo</th>
+                <th scope="col">Valore</th>
+                <th scope="col">Severità</th>
+                <th scope="col">Timestamp</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for e in events %}
+              <tr class="{% if e.severity|lower == 'high' %}table-danger{% elif e.severity|lower == 'medium' %}table-warning{% endif %}">
+                <td>{{ e.district }}</td>
+                <td>{{ e.sensor_type }}</td>
+                <td>{{ "%.1f"|format(e.value) }} {{ e.unit }}</td>
+                <td>
+                  <span class="badge severity-badge severity-{{ e.severity|lower }}">{{ e.severity }}</span>
+                </td>
+                <td><span class="small text-muted">{{ e.timestamp }}</span></td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="5" class="text-center text-muted py-3">
+                  Nessun evento registrato.
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">Ultime azioni di coordinamento</span>
+        <a href="/actions" class="btn btn-sm btn-outline-secondary">Vedi tutte</a>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0 align-middle">
+            <thead class="table-light">
+              <tr>
+                <th scope="col">Sorgente</th>
+                <th scope="col">Target</th>
+                <th scope="col">Azione</th>
+                <th scope="col">Motivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for a in actions %}
+              <tr>
+                <td>{{ a.source_district }}</td>
+                <td>{{ a.target_district }}</td>
+                <td><span class="badge bg-primary-subtle text-primary-emphasis">{{ a.action_type }}</span></td>
+                <td class="small text-muted">{{ a.reason }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="4" class="text-center text-muted py-3">
+                  Nessuna azione registrata.
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
