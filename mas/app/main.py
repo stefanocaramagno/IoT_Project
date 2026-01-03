@@ -3,10 +3,12 @@ import queue
 import signal
 import sys
 import time
+from typing import Dict
 
 from . import config
-from .agent import DistrictMonitoringAgent
+from .agent import CityCoordinatorAgent, DistrictMonitoringAgent, Message, SensorEvent
 from .mqtt_bridge import MQTTEventListener
+from .router import MQTTRouterThread
 
 
 def setup_logging() -> None:
@@ -20,28 +22,75 @@ def main() -> None:
     setup_logging()
     logger = logging.getLogger(__name__)
 
-    logger.info("Avvio MAS core - Primo prototipo: agente che ascolta MQTT")
+    logger.info("Avvio MAS core - Fase 3: multi-quartiere + agente centrale + protocolli interni.")
 
-    # Coda condivisa tra bridge MQTT e agente
-    event_queue: "queue.Queue[dict]" = queue.Queue(maxsize=1000)
+    # Coda condivisa tra MQTTEventListener e MQTTRouterThread (eventi raw da MQTT)
+    mqtt_event_queue: "queue.Queue[dict]" = queue.Queue(maxsize=1000)
 
-    # Bridge MQTT -> Coda
+    # Code per distretto (eventi sensore già mappati)
+    district_event_queues: Dict[str, "queue.Queue[SensorEvent]"] = {
+        district: queue.Queue(maxsize=200) for district in config.DISTRICTS
+    }
+
+    # Code di controllo per ciascun distretto (messaggi dal CityCoordinator)
+    district_control_queues: Dict[str, "queue.Queue[Message]"] = {
+        district: queue.Queue(maxsize=200) for district in config.DISTRICTS
+    }
+
+    # Coda inbox per il CityCoordinator (messaggi dai distretti)
+    coordinator_inbox: "queue.Queue[Message]" = queue.Queue(maxsize=500)
+
+    # Bridge MQTT -> coda raw
     mqtt_listener = MQTTEventListener(
         broker_host=config.MQTT_BROKER_HOST,
         broker_port=config.MQTT_BROKER_PORT,
         topic_filter=config.MQTT_TOPIC_FILTER,
-        event_queue=event_queue,
+        event_queue=mqtt_event_queue,
     )
     mqtt_listener.start()
 
-    # Agente di monitoraggio (per ora unico, gestisce tutti i district)
-    agent = DistrictMonitoringAgent(name="DistrictMonitoringAgent", event_queue=event_queue)
-    agent.start()
+    # Router che smista gli eventi raw verso i distretti
+    router = MQTTRouterThread(
+        mqtt_event_queue=mqtt_event_queue,
+        district_queues=district_event_queues,
+    )
+    router.start()
+
+    # Agente centrale
+    coordinator_agent = CityCoordinatorAgent(
+        inbox_queue=coordinator_inbox,
+        district_control_queues=district_control_queues,
+    )
+    coordinator_agent.start()
+
+    # Agenti di quartiere
+    district_agents = []
+    for district in config.DISTRICTS:
+        agent = DistrictMonitoringAgent(
+            district=district,
+            sensor_queue=district_event_queues[district],
+            control_queue=district_control_queues[district],
+            coordinator_inbox=coordinator_inbox,
+        )
+        agent.start()
+        district_agents.append(agent)
 
     def handle_sigterm(signum, frame):
         logger.info("Segnale di terminazione ricevuto (%s). Arresto in corso...", signum)
-        agent.stop()
+
+        # Arresto agenti di quartiere
+        for agent in district_agents:
+            agent.stop()
+
+        # Arresto agente centrale
+        coordinator_agent.stop()
+
+        # Arresto router
+        router.stop()
+
+        # Arresto client MQTT
         mqtt_listener.stop()
+
         time.sleep(1.0)
         sys.exit(0)
 
