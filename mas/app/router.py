@@ -9,13 +9,6 @@ logger = logging.getLogger(__name__)
 
 
 class MQTTRouterThread(threading.Thread):
-    """Thread che smista gli eventi MQTT raw verso le code dei singoli distretti.
-
-    Prende eventi dalla coda 'mqtt_event_queue' (dettagli raw da MQTTEventListener)
-    e, in base al campo 'district' del payload, instrada l'evento verso la coda
-    del relativo distretto, convertendolo in un oggetto SensorEvent.
-    """
-
     def __init__(
         self,
         mqtt_event_queue: "queue.Queue[dict]",
@@ -40,27 +33,15 @@ class MQTTRouterThread(threading.Thread):
             district = str(payload.get("district", "unknown"))
 
             if district not in self._district_queues:
-                logger.warning(
-                    "Evento per distretto sconosciuto '%s' su topic %s: %s",
-                    district,
-                    topic,
-                    payload,
-                )
+                logger.warning("Evento per distretto sconosciuto '%s' su topic %s: %s", district, topic, payload)
                 continue
 
             sensor_event = SensorEvent.from_raw(topic, payload)
             try:
                 self._district_queues[district].put_nowait(sensor_event)
-                logger.debug(
-                    "Instradato evento verso distretto %s: %s",
-                    district,
-                    sensor_event,
-                )
+                logger.debug("Instradato evento verso %s: %s", district, sensor_event)
             except queue.Full:
-                logger.error(
-                    "Coda eventi per distretto %s piena: impossibile instradare nuovo evento.",
-                    district,
-                )
+                logger.error("Coda eventi per distretto %s piena, impossibile instradare evento.", district)
 
     def stop(self) -> None:
         logger.info("Richiesta di arresto per MQTTRouterThread...")

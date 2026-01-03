@@ -9,12 +9,6 @@ logger = logging.getLogger(__name__)
 
 
 class MQTTEventListener:
-    """Client MQTT che ascolta i topic dei sensori e inoltra i messaggi a una coda locale.
-
-    La coda funge da canale di comunicazione tra il mondo MQTT (IoT) e il router
-    degli eventi, che a sua volta smista gli eventi verso gli agenti di quartiere.
-    """
-
     def __init__(self, broker_host: str, broker_port: int, topic_filter: str, event_queue: "queue.Queue[dict]") -> None:
         self._broker_host = broker_host
         self._broker_port = broker_port
@@ -27,8 +21,8 @@ class MQTTEventListener:
 
     def _on_connect(self, client: mqtt.Client, userdata: Any, flags: dict, rc: int) -> None:
         if rc == 0:
-            logger.info("Connesso con successo al broker MQTT (%s:%s)", self._broker_host, self._broker_port)
-            logger.info("Sottoscrizione al filtro di topic: %s", self._topic_filter)
+            logger.info("Connesso al broker MQTT (%s:%s)", self._broker_host, self._broker_port)
+            logger.info("Sottoscrizione al filtro: %s", self._topic_filter)
             client.subscribe(self._topic_filter)
         else:
             logger.error("Connessione al broker MQTT fallita, rc=%s", rc)
@@ -41,22 +35,19 @@ class MQTTEventListener:
             logger.warning("Payload non valido su topic %s: %s", msg.topic, payload_str)
             return
 
-        event = {
-            "topic": msg.topic,
-            "payload": payload,
-        }
+        event = {"topic": msg.topic, "payload": payload}
 
         try:
             self._queue.put_nowait(event)
             logger.debug("Evento MQTT messo in coda raw: %s", event)
         except queue.Full:
-            logger.error("Coda eventi MQTT raw piena: impossibile inserire nuovo evento da topic %s", msg.topic)
+            logger.error("Coda eventi MQTT raw piena, impossibile inserire evento da %s", msg.topic)
 
     def start(self) -> None:
         logger.info("Connessione al broker MQTT %s:%s ...", self._broker_host, self._broker_port)
         self._client.connect(self._broker_host, self._broker_port, keepalive=60)
         self._client.loop_start()
-        logger.info("Loop MQTT avviato in background.")
+        logger.info("Loop MQTT avviato.")
 
     def stop(self) -> None:
         logger.info("Arresto client MQTT...")

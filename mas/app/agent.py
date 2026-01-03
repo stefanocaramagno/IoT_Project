@@ -2,14 +2,15 @@ import logging
 import queue
 import threading
 from dataclasses import dataclass, asdict
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Dict as DictType
+
+from . import persistence
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class SensorEvent:
-    """Rappresenta un evento proveniente da un sensore urbano."""
     topic: str
     district: str
     sensor_type: str
@@ -31,7 +32,6 @@ class SensorEvent:
         )
 
     def is_critical(self) -> bool:
-        """Definizione semplice di evento critico: severity == 'high'."""
         return self.severity.lower() == "high"
 
     def to_dict(self) -> Dict[str, Any]:
@@ -40,21 +40,13 @@ class SensorEvent:
 
 @dataclass
 class Message:
-    """Messaggio di alto livello scambiato tra agenti interni al MAS."""
-    msg_type: str        # es. 'ESCALATION_REQUEST', 'COORDINATION_COMMAND'
-    source: str          # es. 'quartiere1', 'CityCoordinator'
-    target: str          # es. 'CityCoordinator', 'quartiere2'
+    msg_type: str
+    source: str
+    target: str
     payload: Dict[str, Any]
 
 
 class DistrictMonitoringAgent(threading.Thread):
-    """Agente di monitoraggio per un singolo quartiere.
-
-    - Consuma eventi sensore dalla propria coda (sensor_queue).
-    - In caso di evento critico, invia una richiesta di escalation all'agente centrale.
-    - Riceve comandi di coordinamento dall'agente centrale tramite control_queue.
-    """
-
     def __init__(
         self,
         district: str,
@@ -73,10 +65,8 @@ class DistrictMonitoringAgent(threading.Thread):
     def run(self) -> None:
         logger.info("Agente di quartiere %s avviato.", self._district)
         while self._running.is_set():
-            # 1) Gestione dei messaggi di controllo (non blocca)
             self._process_control_messages()
 
-            # 2) Gestione degli eventi sensore (bloccante con timeout)
             try:
                 event = self._sensor_queue.get(timeout=0.5)
             except queue.Empty:
@@ -94,7 +84,6 @@ class DistrictMonitoringAgent(threading.Thread):
                 msg: Message = self._control_queue.get_nowait()
             except queue.Empty:
                 break
-
             self._handle_control_message(msg)
 
     def _handle_sensor_event(self, event: SensorEvent) -> None:
@@ -104,23 +93,22 @@ class DistrictMonitoringAgent(threading.Thread):
             f"value={event.value} {event.unit} | severity={event.severity}"
         )
 
+        event_dict = event.to_dict()
+        persistence.persist_sensor_event(event_dict)
+
         if event.is_critical():
             logger.warning("EVENTO CRITICO in %s: %s", self._district, base_msg)
-            # Invia richiesta di escalation all'agente centrale
             escalation_msg = Message(
                 msg_type="ESCALATION_REQUEST",
                 source=self._district,
                 target="CityCoordinator",
-                payload={
-                    "event": event.to_dict(),
-                    "reason": "severity_high",
-                },
+                payload={"event": event.to_dict(), "reason": "severity_high"},
             )
             try:
                 self._coordinator_inbox.put_nowait(escalation_msg)
                 logger.info("Inviata ESCALATION_REQUEST da %s al CityCoordinator.", self._district)
             except queue.Full:
-                logger.error("Coda inbox del CityCoordinator piena: impossibile inviare escalation da %s.", self._district)
+                logger.error("Coda inbox CityCoordinator piena, impossibile inviare escalation da %s.", self._district)
         else:
             logger.info("Evento non critico in %s: %s", self._district, base_msg)
 
@@ -129,7 +117,7 @@ class DistrictMonitoringAgent(threading.Thread):
             action = msg.payload.get("action", "unknown")
             from_district = msg.payload.get("from_district", "unknown")
             logger.info(
-                "Agente di %s ha ricevuto COORDINATION_COMMAND dal CityCoordinator: action=%s, from_district=%s",
+                "Agente di %s ha ricevuto COORDINATION_COMMAND: action=%s, from_district=%s",
                 self._district,
                 action,
                 from_district,
@@ -144,17 +132,10 @@ class DistrictMonitoringAgent(threading.Thread):
 
 
 class CityCoordinatorAgent(threading.Thread):
-    """Agente centrale di coordinamento della città.
-
-    - Riceve richieste di escalation dai quartieri.
-    - Decide azioni di coordinamento (es. richiesta di supporto ad altri quartieri).
-    - Invia COORDINATION_COMMAND agli agenti di quartiere interessati.
-    """
-
     def __init__(
         self,
         inbox_queue: "queue.Queue[Message]",
-        district_control_queues: Dict[str, "queue.Queue[Message]"],
+        district_control_queues: DictType[str, "queue.Queue[Message]"],
     ) -> None:
         super().__init__(name="CityCoordinatorAgent", daemon=True)
         self._inbox_queue = inbox_queue
@@ -169,7 +150,6 @@ class CityCoordinatorAgent(threading.Thread):
                 msg: Message = self._inbox_queue.get(timeout=1.0)
             except queue.Empty:
                 continue
-
             self._handle_message(msg)
 
     def stop(self) -> None:
@@ -191,8 +171,6 @@ class CityCoordinatorAgent(threading.Thread):
             event,
         )
 
-        # Semplice politica di coordinamento:
-        # - chiede supporto a tutti i quartieri diversi da quello sorgente
         for district, control_queue in self._district_control_queues.items():
             if district == source_district:
                 continue
@@ -214,8 +192,15 @@ class CityCoordinatorAgent(threading.Thread):
                     district,
                     source_district,
                 )
+                persistence.persist_action(
+                    source_district=source_district,
+                    target_district=district,
+                    action_type="REROUTE_TRAFFIC",
+                    reason="support_escalation",
+                    event_snapshot=event,
+                )
             except queue.Full:
                 logger.error(
-                    "Coda di controllo per il distretto %s è piena: impossibile inviare comando di coordinamento.",
+                    "Coda controllo per distretto %s piena, impossibile inviare comando di coordinamento.",
                     district,
                 )

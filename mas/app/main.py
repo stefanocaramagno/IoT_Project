@@ -22,25 +22,20 @@ def main() -> None:
     setup_logging()
     logger = logging.getLogger(__name__)
 
-    logger.info("Avvio MAS core - Fase 3: multi-quartiere + agente centrale + protocolli interni.")
+    logger.info("Avvio MAS core - Fase 4: persistenza su SQLite via FastAPI.")
 
-    # Coda condivisa tra MQTTEventListener e MQTTRouterThread (eventi raw da MQTT)
     mqtt_event_queue: "queue.Queue[dict]" = queue.Queue(maxsize=1000)
 
-    # Code per distretto (eventi sensore già mappati)
     district_event_queues: Dict[str, "queue.Queue[SensorEvent]"] = {
         district: queue.Queue(maxsize=200) for district in config.DISTRICTS
     }
 
-    # Code di controllo per ciascun distretto (messaggi dal CityCoordinator)
     district_control_queues: Dict[str, "queue.Queue[Message]"] = {
         district: queue.Queue(maxsize=200) for district in config.DISTRICTS
     }
 
-    # Coda inbox per il CityCoordinator (messaggi dai distretti)
     coordinator_inbox: "queue.Queue[Message]" = queue.Queue(maxsize=500)
 
-    # Bridge MQTT -> coda raw
     mqtt_listener = MQTTEventListener(
         broker_host=config.MQTT_BROKER_HOST,
         broker_port=config.MQTT_BROKER_PORT,
@@ -49,21 +44,18 @@ def main() -> None:
     )
     mqtt_listener.start()
 
-    # Router che smista gli eventi raw verso i distretti
     router = MQTTRouterThread(
         mqtt_event_queue=mqtt_event_queue,
         district_queues=district_event_queues,
     )
     router.start()
 
-    # Agente centrale
     coordinator_agent = CityCoordinatorAgent(
         inbox_queue=coordinator_inbox,
         district_control_queues=district_control_queues,
     )
     coordinator_agent.start()
 
-    # Agenti di quartiere
     district_agents = []
     for district in config.DISTRICTS:
         agent = DistrictMonitoringAgent(
@@ -78,17 +70,11 @@ def main() -> None:
     def handle_sigterm(signum, frame):
         logger.info("Segnale di terminazione ricevuto (%s). Arresto in corso...", signum)
 
-        # Arresto agenti di quartiere
         for agent in district_agents:
             agent.stop()
 
-        # Arresto agente centrale
         coordinator_agent.stop()
-
-        # Arresto router
         router.stop()
-
-        # Arresto client MQTT
         mqtt_listener.stop()
 
         time.sleep(1.0)
