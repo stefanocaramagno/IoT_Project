@@ -12,7 +12,7 @@ async def root():
       </head>
       <body>
         <h1>Urban Monitoring MAS - Web Backend è in esecuzione</h1>
-        <p>Questa è la pagina di test iniziale (Fase 0-1: backend attivo, MQTT e simulatori in corso di integrazione).</p>
+        <p>Fase 2: il MAS ha un primo agente che ascolta MQTT e logga gli eventi.</p>
       </body>
     </html>
     '''

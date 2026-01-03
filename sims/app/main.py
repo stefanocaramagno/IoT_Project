@@ -16,7 +16,6 @@ SENSOR_TYPES = ["traffic", "pollution"]
 
 def classify_severity(sensor_type: str, value: float) -> str:
     if sensor_type == "traffic":
-        # valore indicativo: veicoli/minuto su un asse principale
         if value < 40:
             return "low"
         elif value < 100:
@@ -24,7 +23,6 @@ def classify_severity(sensor_type: str, value: float) -> str:
         else:
             return "high"
     elif sensor_type == "pollution":
-        # valore indicativo: µg/m3 di PM2.5
         if value < 50:
             return "low"
         elif value < 100:
@@ -36,10 +34,10 @@ def classify_severity(sensor_type: str, value: float) -> str:
 
 def build_payload(district: str, sensor_type: str) -> dict:
     if sensor_type == "traffic":
-        value = random.randint(0, 160)  # veicoli/minuto
+        value = random.randint(0, 160)
         unit = "veh/min"
     elif sensor_type == "pollution":
-        value = round(random.uniform(10, 180), 1)  # µg/m3
+        value = round(random.uniform(10, 180), 1)
         unit = "µg/m3"
     else:
         value = 0
