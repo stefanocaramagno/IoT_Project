@@ -150,7 +150,7 @@ class DistrictMonitoringAgent(threading.Thread):
             except Exception as exc:  # noqa: BLE001
                 # Fallback sicuro: usiamo la regola deterministica originale
                 logger.warning(
-                    "LLM Gateway non disponibile o risposta non valida (%s). "
+                    "LLM Gateway non disponibile o risposta non valida per decide_escalation (%s). " 
                     "Uso regola deterministica basata sulla severità.",
                     exc,
                 )
@@ -215,6 +215,8 @@ class CityCoordinatorAgent(threading.Thread):
         self._district_control_queues = district_control_queues
         self._running = threading.Event()
         self._running.set()
+        # Stato sintetico della città (ultimo valore noto per tipo di sensore per distretto)
+        self._city_state: DictType[str, Dict[str, Any]] = {}
 
     def run(self) -> None:
         logger.info("CityCoordinatorAgent avviato.")
@@ -235,6 +237,36 @@ class CityCoordinatorAgent(threading.Thread):
         else:
             logger.info("CityCoordinatorAgent ha ricevuto messaggio di tipo %s da %s", msg.msg_type, msg.source)
 
+    def _update_city_state(self, district: str, event: Dict[str, Any]) -> None:
+        """Aggiorna una vista sintetica dello stato cittadino partendo dall'evento critico."""
+        state = self._city_state.setdefault(district, {})
+        sensor_type = event.get("sensor_type") or event.get("type")
+        raw_value = event.get("value", 0.0)
+        try:
+            value = float(raw_value)
+        except (TypeError, ValueError):
+            value = 0.0
+
+        if sensor_type == "traffic":
+            state["traffic_index"] = value
+        elif sensor_type == "pollution":
+            state["pollution_index"] = value
+
+    def _build_fallback_plan(self, source_district: str, critical_event: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Costruisce un piano di coordinamento deterministico in caso di errore LLM."""
+        plan: List[Dict[str, Any]] = []
+        for district in self._district_control_queues.keys():
+            if district == source_district:
+                continue
+            plan.append(
+                {
+                    "target_district": district,
+                    "action_type": "REROUTE_TRAFFIC",
+                    "reason": "support_escalation_fallback",
+                }
+            )
+        return plan
+
     def _handle_escalation_request(self, msg: Message) -> None:
         event = msg.payload.get("event", {})
         source_district = msg.source
@@ -244,36 +276,96 @@ class CityCoordinatorAgent(threading.Thread):
             event,
         )
 
-        for district, control_queue in self._district_control_queues.items():
-            if district == source_district:
+        # Aggiorna lo stato sintetico della città con l'evento critico
+        self._update_city_state(source_district, event)
+
+        # Costruisce il riassunto dell'evento critico per l'LLM
+        sensor_type = event.get("sensor_type") or event.get("type") or "unknown"
+        raw_value = event.get("value", 0.0)
+        try:
+            value = float(raw_value)
+        except (TypeError, ValueError):
+            value = 0.0
+
+        critical_event = {
+            "timestamp": str(event.get("timestamp", "")),
+            "sensor_type": str(sensor_type),
+            "value": value,
+            "unit": str(event.get("unit", "")),
+            "severity": str(event.get("severity", "unknown")),
+        }
+
+        # Costruisce lo stato sintetico della città per l'LLM
+        city_state_payload: List[Dict[str, Any]] = []
+        for district_name, metrics in self._city_state.items():
+            city_state_payload.append(
+                {
+                    "district": district_name,
+                    "traffic_index": metrics.get("traffic_index"),
+                    "pollution_index": metrics.get("pollution_index"),
+                    "other_metrics": {},
+                }
+            )
+
+        # Invoca l'LLM come planner, con fallback deterministico
+        try:
+            llm_response = llm_client.plan_coordination(
+                source_district=source_district,
+                critical_event=critical_event,
+                city_state=city_state_payload,
+            )
+            plan_entries = llm_response.get("plan", [])
+            logger.info("Piano di coordinamento LLM per %s: %s", source_district, plan_entries)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "LLM Gateway non disponibile o risposta non valida per plan_coordination (%s). "
+                "Uso piano di coordinamento deterministico di fallback.",
+                exc,
+            )
+            plan_entries = self._build_fallback_plan(source_district, critical_event)
+
+        # Applica il piano (LLM o fallback) inviando COORDINATION_COMMAND ai distretti target
+        for entry in plan_entries:
+            target = entry.get("target_district")
+            action_type = entry.get("action_type", "UNKNOWN_ACTION")
+            reason = entry.get("reason", "llm_plan")
+
+            if not target or target == source_district or target not in self._district_control_queues:
+                logger.warning(
+                    "Entry di piano con target_district non valido: %s (entry=%s)",
+                    target,
+                    entry,
+                )
                 continue
 
             command = Message(
                 msg_type="COORDINATION_COMMAND",
                 source="CityCoordinator",
-                target=district,
+                target=target,
                 payload={
-                    "action": "REROUTE_TRAFFIC",
+                    "action": action_type,
                     "from_district": source_district,
                     "original_event": event,
                 },
             )
             try:
+                control_queue = self._district_control_queues[target]
                 control_queue.put_nowait(command)
                 logger.info(
-                    "CityCoordinatorAgent ha inviato COORDINATION_COMMAND a %s per supportare %s.",
-                    district,
+                    "CityCoordinatorAgent ha inviato COORDINATION_COMMAND a %s per supportare %s (action=%s).",
+                    target,
                     source_district,
+                    action_type,
                 )
                 persistence.persist_action(
                     source_district=source_district,
-                    target_district=district,
-                    action_type="REROUTE_TRAFFIC",
-                    reason="support_escalation",
+                    target_district=target,
+                    action_type=action_type,
+                    reason=reason,
                     event_snapshot=event,
                 )
             except queue.Full:
                 logger.error(
                     "Coda controllo per distretto %s piena, impossibile inviare comando di coordinamento.",
-                    district,
+                    target,
                 )
