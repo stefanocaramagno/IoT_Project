@@ -48,6 +48,19 @@ services:
       - MQTT_BROKER_PORT=1883
       - PUBLISH_INTERVAL_SECONDS=5
 
+  llm-gateway:
+    build:
+      context: ./llm_gateway
+    container_name: llm-gateway
+    restart: unless-stopped
+    environment:
+      - LLM_API_BASE=http://host.docker.internal:11434
+      - LLM_MODEL_NAME=mistral
+      - LLM_TIMEOUT_SECONDS=5
+    ports:
+      - "8100:8000"
+
+
 volumes:
   mosquitto_data:
   mosquitto_log:
