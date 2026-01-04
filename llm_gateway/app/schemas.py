@@ -6,8 +6,6 @@ from pydantic import BaseModel, Field
 
 
 class SensorEventSummary(BaseModel):
-    """Rappresentazione compatta di un evento sensore per l'LLM."""
-
     timestamp: str
     sensor_type: str
     value: float
@@ -15,8 +13,6 @@ class SensorEventSummary(BaseModel):
     severity: str
 
 class CityStateEntry(BaseModel):
-    """Stato sintetico di un quartiere per il coordinamento."""
-
     district: str
     traffic_index: Optional[float] = None
     pollution_index: Optional[float] = None
@@ -53,4 +49,3 @@ class PlanCoordinationResponse(BaseModel):
         default_factory=list,
         description="Lista di azioni di coordinamento proposte dall'LLM.",
     )
-    

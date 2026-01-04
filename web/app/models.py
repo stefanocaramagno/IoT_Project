@@ -1,9 +1,12 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, Float, Integer, String, Text
 
 from .database import Base
 
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 class Event(Base):
     __tablename__ = "events"
@@ -16,7 +19,10 @@ class Event(Base):
     severity = Column(String, index=True)
     timestamp = Column(String)
     topic = Column(String)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
 
 class Action(Base):
     __tablename__ = "actions"
@@ -27,4 +33,7 @@ class Action(Base):
     action_type = Column(String, index=True)
     reason = Column(String)
     event_snapshot = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )

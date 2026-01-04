@@ -1,72 +1,504 @@
 {% extends "base.html" %}
 
+{% block title %}Actions · Urban MAS{% endblock %}
+
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <div>
-    <h1 class="h3 mb-1">Azioni di coordinamento</h1>
-    <p class="text-muted mb-0">
-      Storico delle azioni decise dall'agente centrale a seguito di eventi critici nei quartieri.
-    </p>
-  </div>
-</div>
+<section class="space-y-8">
+  <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold tracking-tight text-slate-50 sm:text-3xl">
+        Actions &ndash; Coordination Explorer
+      </h1>
+      <p class="mt-1 max-w-2xl text-sm text-slate-400">
+        Analytical explorer of coordination actions issued by the CityCoordinator, linked to triggering critical events and filterable by districts, action type and time window.
+      </p>
+    </div>
 
-<form class="row g-3 mb-3" method="get">
-  <div class="col-md-4 col-lg-3">
-    <label for="source_district" class="form-label">Quartiere sorgente</label>
-    <select id="source_district" name="source_district" class="form-select">
-      <option value="">Tutti</option>
-      {% for s in sources %}
-        <option value="{{ s }}" {% if s == selected_source %}selected{% endif %}>{{ s }}</option>
-      {% endfor %}
-    </select>
+    <div class="text-xs text-slate-500 md:text-right">
+      <div>
+        <span class="font-medium text-slate-400">Last update:</span>
+        {{ now_utc.strftime("%Y-%m-%d %H:%M UTC") }}
+      </div>
+      <div>
+        {% if time_filtered and window_minutes > 0 %}
+          Time window:
+          <span class="font-medium text-slate-300">last {{ window_minutes }} minutes</span>
+        {% else %}
+          Time window:
+          <span class="font-medium text-slate-300">all time</span>
+        {% endif %}
+      </div>
+    </div>
   </div>
-  <div class="col-md-4 col-lg-3">
-    <label for="target_district" class="form-label">Quartiere target</label>
-    <select id="target_district" name="target_district" class="form-select">
-      <option value="">Tutti</option>
-      {% for t in targets %}
-        <option value="{{ t }}" {% if t == selected_target %}selected{% endif %}>{{ t }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div class="col-md-4 col-lg-3 align-self-end">
-    <button type="submit" class="btn btn-primary me-2">Filtra</button>
-    <a href="/actions" class="btn btn-outline-secondary">Reset</a>
-  </div>
-</form>
 
-<div class="card">
-  <div class="card-body p-0">
-    <div class="table-responsive">
-      <table class="table table-hover table-sm mb-0 align-middle">
-        <thead class="table-light">
-          <tr>
-            <th scope="col">ID</th>
-            <th scope="col">Sorgente</th>
-            <th scope="col">Target</th>
-            <th scope="col">Azione</th>
-            <th scope="col">Motivo</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for a in actions %}
-          <tr>
-            <td class="text-muted small">{{ a.id }}</td>
-            <td>{{ a.source_district }}</td>
-            <td>{{ a.target_district }}</td>
-            <td><span class="badge bg-primary-subtle text-primary-emphasis">{{ a.action_type }}</span></td>
-            <td class="small text-muted">{{ a.reason }}</td>
-          </tr>
-          {% else %}
-          <tr>
-            <td colspan="5" class="text-center text-muted py-3">
-              Nessuna azione trovata per i filtri selezionati.
-            </td>
-          </tr>
+  <form
+    method="get"
+    class="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4 text-sm text-slate-200 shadow-sm"
+  >
+    <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
+      <div class="flex flex-col gap-1">
+        <label for="f-source" class="text-xs font-medium uppercase tracking-wide text-slate-500">
+          Source district
+        </label>
+        <select
+          id="f-source"
+          name="source_district"
+          class="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+        >
+          <option value="">All sources</option>
+          {% for s in sources %}
+            <option value="{{ s }}" {% if selected_source_district == s %}selected{% endif %}>
+              {{ s }}
+            </option>
           {% endfor %}
-        </tbody>
-      </table>
+        </select>
+      </div>
+
+      <div class="flex flex-col gap-1">
+        <label for="f-target" class="text-xs font-medium uppercase tracking-wide text-slate-500">
+          Target district
+        </label>
+        <select
+          id="f-target"
+          name="target_district"
+          class="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+        >
+          <option value="">All targets</option>
+          {% for t in targets %}
+            <option value="{{ t }}" {% if selected_target_district == t %}selected{% endif %}>
+              {{ t }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="flex flex-col gap-1">
+        <label for="f-action-type" class="text-xs font-medium uppercase tracking-wide text-slate-500">
+          Action type
+        </label>
+        <select
+          id="f-action-type"
+          name="action_type"
+          class="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+        >
+          <option value="">All types</option>
+          {% for at in action_types %}
+            <option value="{{ at }}" {% if selected_action_type == at %}selected{% endif %}>
+              {{ at }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="flex flex-col gap-1">
+        <label for="f-window" class="text-xs font-medium uppercase tracking-wide text-slate-500">
+          Time window
+        </label>
+        <select
+          id="f-window"
+          name="window_minutes"
+          class="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+        >
+          <option value="0" {% if window_minutes == 0 %}selected{% endif %}>All time</option>
+          <option value="15" {% if window_minutes == 15 %}selected{% endif %}>Last 15 minutes</option>
+          <option value="30" {% if window_minutes == 30 %}selected{% endif %}>Last 30 minutes</option>
+          <option value="60" {% if window_minutes == 60 %}selected{% endif %}>Last 60 minutes</option>
+          <option value="120" {% if window_minutes == 120 %}selected{% endif %}>Last 2 hours</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto]">
+      <div class="flex flex-col gap-1">
+        <label for="f-q" class="text-xs font-medium uppercase tracking-wide text-slate-500">
+          Search
+        </label>
+        <input
+          id="f-q"
+          name="q"
+          type="text"
+          value="{{ q }}"
+          placeholder="Search in reason or snapshot..."
+          class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-1 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+        />
+      </div>
+
+      <div class="flex flex-col gap-1">
+        <label for="f-limit" class="text-xs font-medium uppercase tracking-wide text-slate-500">
+          Limit
+        </label>
+        <select
+          id="f-limit"
+          name="limit"
+          class="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+        >
+          <option value="0" {% if limit == 0 %}selected{% endif %}>All</option>
+          <option value="50" {% if limit == 50 %}selected{% endif %}>50</option>
+          <option value="100" {% if limit == 100 %}selected{% endif %}>100</option>
+          <option value="200" {% if limit == 200 %}selected{% endif %}>200</option>
+        </select>
+      </div>
+
+      <div class="flex items-end justify-start gap-2 md:justify-end">
+        <button
+          type="submit"
+          class="inline-flex items-center rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-950 shadow-sm hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+        >
+          Apply filters
+        </button>
+        <a
+          href="/actions"
+          class="inline-flex items-center rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+        >
+          Reset
+        </a>
+      </div>
+    </div>
+  </form>
+
+  <section
+    class="grid grid-cols-1 gap-4 text-xs text-slate-300 sm:grid-cols-2 lg:grid-cols-3"
+  >
+    <div class="rounded-2xl border border-slate-800 bg-slate-900/70 px-3 py-3">
+      <div class="text-[0.65rem] uppercase tracking-wide text-slate-500">
+        Filtered actions
+      </div>
+      <div class="mt-1 text-lg font-semibold text-slate-50">
+        {{ filtered_actions_count }}
+      </div>
+      <div class="mt-1 text-[0.7rem] text-slate-500">
+        {% if limit == 0 %}
+          Showing
+          <span class="font-medium text-slate-300">{{ filtered_actions_count }}</span>
+          actions (all results) · Total in DB:
+          <span class="font-medium text-slate-300">{{ total_actions_count }}</span>
+        {% else %}
+          Showing up to
+          <span class="font-medium text-slate-300">{{ limit }}</span>
+          actions · Total in DB:
+          <span class="font-medium text-slate-300">{{ total_actions_count }}</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900/70 px-3 py-3">
+      <div class="text-[0.65rem] uppercase tracking-wide text-slate-500">
+        Distinct coordination links
+      </div>
+      <div class="mt-1 text-lg font-semibold text-sky-300">
+        {{ distinct_links_count }}
+      </div>
+      <div class="mt-1 text-[0.7rem] text-slate-500">
+        Number of unique source → target pairs in the filtered result set.
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900/70 px-3 py-3">
+      <div class="text-[0.65rem] uppercase tracking-wide text-slate-500">
+        Active filters
+      </div>
+      <ul class="mt-1 space-y-0.5 text-[0.7rem] text-slate-400">
+        <li>
+          Source:
+          <span class="font-medium text-slate-200">
+            {{ selected_source_district if selected_source_district else "All" }}
+          </span>
+        </li>
+        <li>
+          Target:
+          <span class="font-medium text-slate-200">
+            {{ selected_target_district if selected_target_district else "All" }}
+          </span>
+        </li>
+        <li>
+          Action type:
+          <span class="font-medium text-slate-200">
+            {{ selected_action_type if selected_action_type else "All" }}
+          </span>
+        </li>
+        <li>
+          Time window:
+          <span class="font-medium text-slate-200">
+            {% if time_filtered and window_minutes > 0 %}
+              last {{ window_minutes }} minutes
+            {% else %}
+              all time
+            {% endif %}
+          </span>
+        </li>
+        <li>
+          Limit:
+          <span class="font-medium text-slate-200">
+            {% if limit == 0 %}All{% else %}{{ limit }}{% endif %}
+          </span>
+        </li>
+        <li>
+          Search:
+          <span class="font-medium text-slate-200">
+            {{ q if q else "—" }}
+          </span>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="space-y-3">
+    <header class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-400">
+        Coordination list
+      </h2>
+      <p class="text-xs text-slate-500">
+        Click on a row (or card on mobile) to inspect the full coordination details.
+      </p>
+    </header>
+
+    {% if actions %}
+      <div class="hidden max-h-[640px] overflow-auto rounded-2xl border border-slate-800 bg-slate-950/40 md:block">
+        <table class="min-w-full table-fixed text-left text-xs">
+          <thead class="sticky top-0 z-10 bg-slate-900/95 text-[0.65rem] uppercase tracking-wide text-slate-500">
+            <tr>
+              <th class="px-3 py-2 whitespace-nowrap">ID</th>
+              <th class="px-3 py-2 whitespace-nowrap">Created at</th>
+              <th class="px-3 py-2 whitespace-nowrap">Source</th>
+              <th class="px-3 py-2 whitespace-nowrap">Target</th>
+              <th class="px-3 py-2 whitespace-nowrap">Action type</th>
+              <th class="px-3 py-2 whitespace-nowrap">Reason</th>
+              <th class="px-3 py-2 whitespace-nowrap">Snapshot (summary)</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800">
+            {% for a in actions %}
+              {% set atype = (a.action_type or "") %}
+              {% set atype_lower = atype|lower %}
+              {% if "reroute" in atype_lower %}
+                {% set badge_color = "bg-sky-500/15 text-sky-300 ring-sky-500/40" %}
+              {% elif "alert" in atype_lower %}
+                {% set badge_color = "bg-amber-500/15 text-amber-300 ring-amber-500/40" %}
+              {% elif "limit" in atype_lower %}
+                {% set badge_color = "bg-rose-500/15 text-rose-300 ring-rose-500/40" %}
+              {% else %}
+                {% set badge_color = "bg-emerald-500/15 text-emerald-300 ring-emerald-500/40" %}
+              {% endif %}
+
+              <tr
+                class="cursor-pointer bg-slate-950/40 hover:bg-slate-900/80"
+                data-action-row
+                data-action-id="{{ a.id }}"
+                data-action-source="{{ a.source_district }}"
+                data-action-target="{{ a.target_district }}"
+                data-action-type="{{ a.action_type }}"
+                data-action-reason="{{ a.reason }}"
+                data-action-created="{{ a.created_at_str }}"
+                data-snapshot-district="{{ a.snapshot_district }}"
+                data-snapshot-sensor-type="{{ a.snapshot_sensor_type }}"
+                data-snapshot-value="{{ a.snapshot_value }}"
+                data-snapshot-unit="{{ a.snapshot_unit }}"
+                data-snapshot-severity="{{ a.snapshot_severity }}"
+                data-snapshot-timestamp="{{ a.snapshot_timestamp }}"
+                data-snapshot-topic="{{ a.snapshot_topic }}"
+              >
+                <td class="px-3 py-2 text-slate-500 whitespace-nowrap">
+                  {{ a.id }}
+                </td>
+                <td class="px-3 py-2 text-slate-400 whitespace-nowrap">
+                  {{ a.created_at_str }}
+                </td>
+                <td class="px-3 py-2 text-slate-100 whitespace-nowrap">
+                  {{ a.source_district }}
+                </td>
+                <td class="px-3 py-2 text-slate-100 whitespace-nowrap">
+                  {{ a.target_district }}
+                </td>
+                <td class="px-3 py-2 whitespace-nowrap">
+                  <span
+                    class="inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] font-medium ring-1 {{ badge_color }}"
+                  >
+                    {{ a.action_type }}
+                  </span>
+                </td>
+                <td class="px-3 py-2 text-slate-300 max-w-[14rem] truncate">
+                  {% if a.reason %}
+                    {{ a.reason }}
+                  {% else %}
+                    <span class="text-slate-500">–</span>
+                  {% endif %}
+                </td>
+                <td class="px-3 py-2 text-slate-400 max-w-[14rem] truncate">
+                  {{ a.snapshot_summary }}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="space-y-3 md:hidden">
+        {% for a in actions %}
+          {% set atype = (a.action_type or "") %}
+          {% set atype_lower = atype|lower %}
+          {% if "reroute" in atype_lower %}
+            {% set badge_color = "bg-sky-500/15 text-sky-300 ring-sky-500/40" %}
+          {% elif "alert" in atype_lower %}
+            {% set badge_color = "bg-amber-500/15 text-amber-300 ring-amber-500/40" %}
+          {% elif "limit" in atype_lower %}
+            {% set badge_color = "bg-rose-500/15 text-rose-300 ring-rose-500/40" %}
+          {% else %}
+            {% set badge_color = "bg-emerald-500/15 text-emerald-300 ring-emerald-500/40" %}
+          {% endif %}
+
+          <article
+            class="cursor-pointer rounded-2xl border border-slate-800 bg-slate-900/70 p-3 shadow-sm"
+            data-action-row
+            data-action-id="{{ a.id }}"
+            data-action-source="{{ a.source_district }}"
+            data-action-target="{{ a.target_district }}"
+            data-action-type="{{ a.action_type }}"
+            data-action-reason="{{ a.reason }}"
+            data-action-created="{{ a.created_at_str }}"
+            data-snapshot-district="{{ a.snapshot_district }}"
+            data-snapshot-sensor-type="{{ a.snapshot_sensor_type }}"
+            data-snapshot-value="{{ a.snapshot_value }}"
+            data-snapshot-unit="{{ a.snapshot_unit }}"
+            data-snapshot-severity="{{ a.snapshot_severity }}"
+            data-snapshot-timestamp="{{ a.snapshot_timestamp }}"
+            data-snapshot-topic="{{ a.snapshot_topic }}"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <div class="text-sm font-semibold text-slate-50">
+                #{{ a.id }} · {{ a.source_district }} → {{ a.target_district }}
+              </div>
+              <span
+                class="inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] font-medium ring-1 {{ badge_color }}"
+              >
+                {{ a.action_type }}
+              </span>
+            </div>
+            <div class="mt-1 text-xs text-slate-400">
+              {{ a.created_at_str }}
+            </div>
+            <div class="mt-2 text-xs text-slate-300">
+              {% if a.reason %}
+                {{ a.reason[:100] }}{% if a.reason|length > 100 %}…{% endif %}
+              {% else %}
+                <span class="text-slate-500">No explicit reason.</span>
+              {% endif %}
+            </div>
+            <div class="mt-2 text-[0.7rem] text-slate-500">
+              Snapshot: {{ a.snapshot_summary }}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div
+        class="rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 p-6 text-center text-sm text-slate-500"
+      >
+        No coordination actions match the selected filters.
+        <br />
+        Try relaxing the time window or removing some filters.
+      </div>
+    {% endif %}
+  </section>
+</section>
+
+<div
+  id="action-modal"
+  class="fixed inset-0 z-50 hidden flex items-center justify-center px-4"
+>
+  <div
+    data-modal-overlay
+    class="absolute inset-0 bg-slate-950/80"
+  ></div>
+  <div
+    class="relative z-10 w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900/95 p-5 shadow-xl"
+  >
+    <header class="mb-3 flex items-center justify-between gap-2">
+      <div>
+        <h3 class="text-sm font-semibold text-slate-50">
+          Coordination action details
+        </h3>
+        <p class="text-xs text-slate-500">
+          Full data as persisted by the web backend and the originating event snapshot.
+        </p>
+      </div>
+      <button
+        type="button"
+        data-modal-close
+        class="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
+      >
+        ✕
+      </button>
+    </header>
+
+    <div class="space-y-4 text-xs text-slate-300">
+      <section class="space-y-2">
+        <h4 class="text-[0.7rem] font-semibold uppercase tracking-wide text-slate-500">
+          Action
+        </h4>
+        <dl class="space-y-2">
+          <div class="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+            <dt class="text-slate-500">ID</dt>
+            <dd data-field="id" class="font-medium text-slate-100"></dd>
+          </div>
+          <div class="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+            <dt class="text-slate-500">Created at</dt>
+            <dd data-field="created_at" class="text-slate-100"></dd>
+          </div>
+          <div class="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+            <dt class="text-slate-500">Source district</dt>
+            <dd data-field="source" class="font-medium text-slate-100"></dd>
+          </div>
+          <div class="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+            <dt class="text-slate-500">Target district</dt>
+            <dd data-field="target" class="font-medium text-slate-100"></dd>
+          </div>
+          <div class="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+            <dt class="text-slate-500">Action type</dt>
+            <dd data-field="action_type" class="font-medium text-slate-100"></dd>
+          </div>
+          <div class="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+            <dt class="text-slate-500">Reason</dt>
+            <dd data-field="reason" class="text-slate-100"></dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="space-y-2">
+        <h4 class="text-[0.7rem] font-semibold uppercase tracking-wide text-slate-500">
+          Originating event snapshot
+        </h4>
+        <dl class="space-y-2">
+          <div class="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+            <dt class="text-slate-500">District</dt>
+            <dd data-field="snap_district" class="font-medium text-slate-100"></dd>
+          </div>
+          <div class="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+            <dt class="text-slate-500">Sensor type</dt>
+            <dd data-field="snap_sensor_type" class="font-medium text-slate-100"></dd>
+          </div>
+          <div class="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+            <dt class="text-slate-500">Value</dt>
+            <dd data-field="snap_value" class="text-slate-100"></dd>
+          </div>
+          <div class="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+            <dt class="text-slate-500">Severity</dt>
+            <dd data-field="snap_severity" class="text-slate-100"></dd>
+          </div>
+          <div class="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+            <dt class="text-slate-500">Timestamp</dt>
+            <dd data-field="snap_timestamp" class="text-slate-100"></dd>
+          </div>
+          <div class="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+            <dt class="text-slate-500">Topic</dt>
+            <dd data-field="snap_topic" class="text-slate-100 break-all"></dd>
+          </div>
+        </dl>
+      </section>
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="/static/js/actions.js"></script>
 {% endblock %}

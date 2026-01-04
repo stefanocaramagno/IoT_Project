@@ -10,10 +10,6 @@ from .config import settings
 
 
 def _call_ollama_chat(system_prompt: str, user_prompt: str) -> str:
-    """Invoca un runtime LLM compatibile con l'API /api/chat di Ollama.
-
-    Restituisce il contenuto testuale della risposta del modello.
-    """
     base_url = str(settings.api_base).rstrip("/")
     url = f"{base_url}/api/chat"
 
@@ -62,10 +58,6 @@ def _call_ollama_chat(system_prompt: str, user_prompt: str) -> str:
     return content
 
 def _extract_json_from_text(text: str) -> Dict[str, Any]:
-    """Estrae un oggetto JSON da una risposta testuale.
-
-    Cerca il primo '{' e l'ultima '}' e prova a fare il parse.
-    """
     start = text.find("{")
     end = text.rfind("}")
     if start == -1 or end == -1 or end <= start:
@@ -84,7 +76,6 @@ def _extract_json_from_text(text: str) -> Dict[str, Any]:
         ) from exc
 
 def call_llm_for_decide_escalation(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Chiama l'LLM per decidere se effettuare un'escalation."""
     system_prompt = (
         "You are an AI assistant for an urban monitoring multi-agent system. "
         "Your task is to decide whether a local monitoring agent should escalate "
@@ -105,9 +96,7 @@ def call_llm_for_decide_escalation(payload: Dict[str, Any]) -> Dict[str, Any]:
     raw_text = _call_ollama_chat(system_prompt, user_prompt)
     return _extract_json_from_text(raw_text)
 
-
 def call_llm_for_plan_coordination(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Chiama l'LLM per proporre un piano di coordinamento tra quartieri."""
     system_prompt = (
         "You are a coordination planner for an urban multi-agent system. "
         "A district has raised a critical event, and you must propose a coordination "

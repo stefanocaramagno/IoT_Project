@@ -16,16 +16,7 @@ def decide_escalation(
     current_event: Dict[str, Any],
     timeout_seconds: float = 30.0,
 ) -> Dict[str, Any]:
-    """Invoca il microservizio LLM Gateway per decidere l'escalation.
-
-    Restituisce un dizionario atteso con le chiavi:
-    - escalate: bool
-    - normalized_severity: str
-    - reason: str
-
-    In caso di errore di rete o risposta non valida, rilancia l'eccezione,
-    lasciando al chiamante la responsabilità del fallback.
-    """
+    
     payload: Dict[str, Any] = {
         "district": district,
         "recent_events": recent_events,
@@ -52,14 +43,7 @@ def plan_coordination(
     city_state: List[Dict[str, Any]],
     timeout_seconds: float = 30.0,
 ) -> Dict[str, Any]:
-    """Invoca il microservizio LLM Gateway per ottenere un piano di coordinamento.
 
-    Restituisce un dizionario atteso con la chiave:
-    - plan: lista di entry, ognuna con target_district, action_type, reason.
-
-    In caso di errore di rete o risposta non valida, rilancia l'eccezione,
-    lasciando al chiamante la responsabilità del fallback.
-    """
     payload: Dict[str, Any] = {
         "source_district": source_district,
         "critical_event": critical_event,

@@ -140,7 +140,7 @@ class DistrictMonitoringAgent(threading.Thread):
                     normalized_severity,
                     reason,
                 )
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc: 
                 logger.warning(
                     "LLM Gateway non disponibile o risposta non valida per decide_escalation (%s). " 
                     "Uso regola deterministica basata sulla severità.",
@@ -226,7 +226,6 @@ class CityCoordinatorAgent(threading.Thread):
             logger.info("CityCoordinatorAgent ha ricevuto messaggio di tipo %s da %s", msg.msg_type, msg.source)
 
     def _update_city_state(self, district: str, event: Dict[str, Any]) -> None:
-        """Aggiorna una vista sintetica dello stato cittadino partendo dall'evento critico."""
         state = self._city_state.setdefault(district, {})
         sensor_type = event.get("sensor_type") or event.get("type")
         raw_value = event.get("value", 0.0)
@@ -241,7 +240,6 @@ class CityCoordinatorAgent(threading.Thread):
             state["pollution_index"] = value
 
     def _build_fallback_plan(self, source_district: str, critical_event: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Costruisce un piano di coordinamento deterministico in caso di errore LLM."""
         plan: List[Dict[str, Any]] = []
         for district in self._district_control_queues.keys():
             if district == source_district:

@@ -28,7 +28,6 @@ def persist_sensor_event(event_data: Dict[str, Any]) -> None:
     except Exception as exc:
         logger.error("Errore durante la persistenza dell'evento: %s", exc)
 
-
 def persist_action(
     source_district: str,
     target_district: str,
