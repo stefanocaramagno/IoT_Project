@@ -28,7 +28,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 @app.get("/", include_in_schema=False)
 def root() -> Dict[str, str]:
     return {
@@ -37,7 +36,6 @@ def root() -> Dict[str, str]:
         "message": "LLM Gateway for Urban MAS is running.",
     }
 
-
 @app.post("/llm/decide_escalation", response_model=schemas.DecideEscalationResponse)
 def decide_escalation(body: schemas.DecideEscalationRequest) -> Any:
     payload_dict: Dict[str, Any] = body.model_dump()
@@ -45,12 +43,11 @@ def decide_escalation(body: schemas.DecideEscalationRequest) -> Any:
 
     try:
         return schemas.DecideEscalationResponse.model_validate(raw_response)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  
         raise HTTPException(
             status_code=500,
             detail=f"Risposta LLM non valida per decide_escalation: {exc} | raw={raw_response!r}",
         )
-
 
 @app.post("/llm/plan_coordination", response_model=schemas.PlanCoordinationResponse)
 def plan_coordination(body: schemas.PlanCoordinationRequest) -> Any:
@@ -59,7 +56,7 @@ def plan_coordination(body: schemas.PlanCoordinationRequest) -> Any:
 
     try:
         return schemas.PlanCoordinationResponse.model_validate(raw_response)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc: 
         raise HTTPException(
             status_code=500,
             detail=f"Risposta LLM non valida per plan_coordination: {exc} | raw={raw_response!r}",

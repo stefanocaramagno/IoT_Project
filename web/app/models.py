@@ -18,7 +18,6 @@ class Event(Base):
     topic = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-
 class Action(Base):
     __tablename__ = "actions"
 

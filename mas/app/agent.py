@@ -9,7 +9,6 @@ from . import llm_client
 
 logger = logging.getLogger(__name__)
 
-
 @dataclass
 class SensorEvent:
     topic: str
@@ -38,14 +37,12 @@ class SensorEvent:
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
-
 @dataclass
 class Message:
     msg_type: str
     source: str
     target: str
     payload: Dict[str, Any]
-
 
 class DistrictMonitoringAgent(threading.Thread):
     def __init__(
@@ -96,11 +93,9 @@ class DistrictMonitoringAgent(threading.Thread):
             f"value={event.value} {event.unit} | severity={event.severity}"
         )
 
-        # Persistenza dell'evento grezzo come prima cosa
         event_dict = event.to_dict()
         persistence.persist_sensor_event(event_dict)
 
-        # Costruzione dei riassunti per l'LLM (solo campi essenziali)
         recent_summaries = [
             {
                 "timestamp": e.timestamp,
@@ -119,7 +114,6 @@ class DistrictMonitoringAgent(threading.Thread):
             "severity": event.severity,
         }
 
-        # Decidiamo se utilizzare l'LLM: in questo esempio solo per severità almeno medium
         use_llm = event.severity.lower() in {"medium", "high"}
 
         escalate: bool
@@ -138,7 +132,6 @@ class DistrictMonitoringAgent(threading.Thread):
                     llm_response.get("normalized_severity", normalized_severity)
                 ).lower()
                 reason = str(llm_response.get("reason", "llm_decision"))
-                # Aggiorniamo eventualmente la severità con quella normalizzata
                 event.severity = normalized_severity
                 logger.info(
                     "Decisione LLM per %s: escalate=%s, normalized_severity=%s, reason=%s",
@@ -148,7 +141,6 @@ class DistrictMonitoringAgent(threading.Thread):
                     reason,
                 )
             except Exception as exc:  # noqa: BLE001
-                # Fallback sicuro: usiamo la regola deterministica originale
                 logger.warning(
                     "LLM Gateway non disponibile o risposta non valida per decide_escalation (%s). " 
                     "Uso regola deterministica basata sulla severità.",
@@ -157,7 +149,6 @@ class DistrictMonitoringAgent(threading.Thread):
                 escalate = event.is_critical()
                 reason = "fallback_rule"
         else:
-            # Per eventi di severità bassa non interpelliamo l'LLM
             escalate = event.is_critical()
             reason = "low_severity_no_llm"
 
@@ -180,7 +171,6 @@ class DistrictMonitoringAgent(threading.Thread):
         else:
             logger.info("Evento non critico in %s (decisione LLM=%s): %s", self._district, use_llm, base_msg)
 
-        # Aggiorniamo il buffer degli eventi recenti (dopo l'elaborazione)
         self._recent_events.append(event)
         if len(self._recent_events) > self._max_recent_events:
             self._recent_events.pop(0)
@@ -203,7 +193,6 @@ class DistrictMonitoringAgent(threading.Thread):
                 msg.source,
             )
 
-
 class CityCoordinatorAgent(threading.Thread):
     def __init__(
         self,
@@ -215,7 +204,6 @@ class CityCoordinatorAgent(threading.Thread):
         self._district_control_queues = district_control_queues
         self._running = threading.Event()
         self._running.set()
-        # Stato sintetico della città (ultimo valore noto per tipo di sensore per distretto)
         self._city_state: DictType[str, Dict[str, Any]] = {}
 
     def run(self) -> None:
@@ -276,10 +264,8 @@ class CityCoordinatorAgent(threading.Thread):
             event,
         )
 
-        # Aggiorna lo stato sintetico della città con l'evento critico
         self._update_city_state(source_district, event)
 
-        # Costruisce il riassunto dell'evento critico per l'LLM
         sensor_type = event.get("sensor_type") or event.get("type") or "unknown"
         raw_value = event.get("value", 0.0)
         try:
@@ -295,7 +281,6 @@ class CityCoordinatorAgent(threading.Thread):
             "severity": str(event.get("severity", "unknown")),
         }
 
-        # Costruisce lo stato sintetico della città per l'LLM
         city_state_payload: List[Dict[str, Any]] = []
         for district_name, metrics in self._city_state.items():
             city_state_payload.append(
@@ -307,7 +292,6 @@ class CityCoordinatorAgent(threading.Thread):
                 }
             )
 
-        # Invoca l'LLM come planner, con fallback deterministico
         try:
             llm_response = llm_client.plan_coordination(
                 source_district=source_district,
@@ -324,7 +308,6 @@ class CityCoordinatorAgent(threading.Thread):
             )
             plan_entries = self._build_fallback_plan(source_district, critical_event)
 
-        # Applica il piano (LLM o fallback) inviando COORDINATION_COMMAND ai distretti target
         for entry in plan_entries:
             target = entry.get("target_district")
             action_type = entry.get("action_type", "UNKNOWN_ACTION")

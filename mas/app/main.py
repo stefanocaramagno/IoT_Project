@@ -17,7 +17,6 @@ def setup_logging() -> None:
         format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
     )
 
-
 def main() -> None:
     setup_logging()
     logger = logging.getLogger(__name__)
@@ -88,7 +87,6 @@ def main() -> None:
             time.sleep(60)
     except KeyboardInterrupt:
         handle_sigterm(signal.SIGINT, None)
-
 
 if __name__ == "__main__":
     main()

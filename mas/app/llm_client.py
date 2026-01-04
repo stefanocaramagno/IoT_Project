@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 DECIDE_ESCALATION_ENDPOINT = f"{config.LLM_GATEWAY_URL.rstrip('/')}/llm/decide_escalation"
 PLAN_COORDINATION_ENDPOINT = f"{config.LLM_GATEWAY_URL.rstrip('/')}/llm/plan_coordination"
 
-
 def decide_escalation(
     district: str,
     recent_events: List[Dict[str, Any]],
@@ -42,12 +41,10 @@ def decide_escalation(
     if not isinstance(data, dict):
         raise ValueError(f"Risposta LLM non in formato dizionario: {data!r}")
 
-    # Verifica minima delle chiavi attese
     if "escalate" not in data or "normalized_severity" not in data:
         raise ValueError(f"Risposta LLM priva di chiavi attese: {data!r}")
 
     return data
-
 
 def plan_coordination(
     source_district: str,

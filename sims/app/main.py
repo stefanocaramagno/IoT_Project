@@ -31,7 +31,6 @@ def classify_severity(sensor_type: str, value: float) -> str:
             return "high"
     return "unknown"
 
-
 def build_payload(district: str, sensor_type: str) -> dict:
     if sensor_type == "traffic":
         value = random.randint(0, 160)
@@ -54,7 +53,6 @@ def build_payload(district: str, sensor_type: str) -> dict:
         "severity": severity,
         "timestamp": now,
     }
-
 
 def main():
     client_id = f"sim-sensors-{random.randint(0, 9999)}"
@@ -83,7 +81,6 @@ def main():
         client.loop_stop()
         client.disconnect()
         print("[sim-sensors] Disconnesso dal broker.")
-
 
 if __name__ == "__main__":
     main()

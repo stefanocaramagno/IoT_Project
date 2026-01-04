@@ -1,1 +1,1 @@
-# MAS application package
+# mas package

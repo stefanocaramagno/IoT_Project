@@ -7,37 +7,26 @@ from sqlalchemy.orm import Session
 from . import models, schemas
 from .database import Base, engine, get_db
 
-# Creazione delle tabelle al primo avvio
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Urban Monitoring MAS - Web Backend")
 
-# Static & templates
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
-
-# ----------------------
-# Pagina principale (redirect a dashboard)
-# ----------------------
 @app.get("/", include_in_schema=False)
 async def root_redirect():
     return RedirectResponse(url="/dashboard")
 
-
-# ----------------------
-# Pagine HTML (Jinja2)
-# ----------------------
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    # Ultimi eventi e ultime azioni
+
     latest_events = db.query(models.Event).order_by(models.Event.id.desc()).limit(50).all()
     latest_actions = db.query(models.Action).order_by(models.Action.id.desc()).limit(20).all()
 
-    # Statistiche semplici per quartiere e severità
     from sqlalchemy import func
 
     events_per_district = (
@@ -62,7 +51,6 @@ def dashboard(
         },
     )
 
-
 @app.get("/events", response_class=HTMLResponse)
 def events_page(
     request: Request,
@@ -79,7 +67,6 @@ def events_page(
 
     events = query.limit(limit).all()
 
-    # Valori distinti per i filtri
     distinct_districts = [d[0] for d in db.query(models.Event.district).distinct().all() if d[0]]
     distinct_severities = [s[0] for s in db.query(models.Event.severity).distinct().all() if s[0]]
 
@@ -94,7 +81,6 @@ def events_page(
             "severities": distinct_severities,
         },
     )
-
 
 @app.get("/actions", response_class=HTMLResponse)
 def actions_page(
@@ -112,7 +98,6 @@ def actions_page(
 
     actions = query.limit(limit).all()
 
-    # Valori distinti per i filtri
     distinct_sources = [d[0] for d in db.query(models.Action.source_district).distinct().all() if d[0]]
     distinct_targets = [d[0] for d in db.query(models.Action.target_district).distinct().all() if d[0]]
 
@@ -128,10 +113,6 @@ def actions_page(
         },
     )
 
-
-# ----------------------
-# API REST esistenti
-# ----------------------
 @app.post("/api/events", response_model=schemas.EventRead)
 def create_event(event: schemas.EventCreate, db: Session = Depends(get_db)):
     db_event = models.Event(
@@ -148,11 +129,9 @@ def create_event(event: schemas.EventCreate, db: Session = Depends(get_db)):
     db.refresh(db_event)
     return db_event
 
-
 @app.get("/api/events", response_model=list[schemas.EventRead])
 def list_events(db: Session = Depends(get_db), limit: int = 100):
     return db.query(models.Event).order_by(models.Event.id.desc()).limit(limit).all()
-
 
 @app.post("/api/actions", response_model=schemas.ActionRead)
 def create_action(action: schemas.ActionCreate, db: Session = Depends(get_db)):
@@ -178,7 +157,6 @@ def create_action(action: schemas.ActionCreate, db: Session = Depends(get_db)):
         reason=db_action.reason,
         event_snapshot=snapshot_dict,
     )
-
 
 @app.get("/api/actions", response_model=list[schemas.ActionRead])
 def list_actions(db: Session = Depends(get_db), limit: int = 100):

@@ -14,7 +14,6 @@ def _call_ollama_chat(system_prompt: str, user_prompt: str) -> str:
 
     Restituisce il contenuto testuale della risposta del modello.
     """
-    # settings.api_base è un AnyHttpUrl (Pydantic), lo convertiamo esplicitamente a stringa
     base_url = str(settings.api_base).rstrip("/")
     url = f"{base_url}/api/chat"
 
@@ -32,7 +31,7 @@ def _call_ollama_chat(system_prompt: str, user_prompt: str) -> str:
 
     try:
         resp = requests.post(url, json=payload, timeout=settings.timeout_seconds)
-    except requests.RequestException as exc:  # noqa: PERF203, BLE001
+    except requests.RequestException as exc: 
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Errore di connessione al runtime LLM: {exc}",
@@ -46,7 +45,7 @@ def _call_ollama_chat(system_prompt: str, user_prompt: str) -> str:
 
     try:
         data = resp.json()
-    except json.JSONDecodeError as exc:  # noqa: BLE001
+    except json.JSONDecodeError as exc: 
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Risposta non valida dal runtime LLM (JSON decode error): {exc}",
@@ -61,7 +60,6 @@ def _call_ollama_chat(system_prompt: str, user_prompt: str) -> str:
         )
 
     return content
-
 
 def _extract_json_from_text(text: str) -> Dict[str, Any]:
     """Estrae un oggetto JSON da una risposta testuale.
@@ -79,12 +77,11 @@ def _extract_json_from_text(text: str) -> Dict[str, Any]:
     json_str = text[start : end + 1]
     try:
         return json.loads(json_str)
-    except json.JSONDecodeError as exc:  # noqa: BLE001
+    except json.JSONDecodeError as exc: 
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"JSON non valido nella risposta del modello: {exc} | raw={json_str!r}",
         ) from exc
-
 
 def call_llm_for_decide_escalation(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Chiama l'LLM per decidere se effettuare un'escalation."""

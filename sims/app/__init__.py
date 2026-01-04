@@ -1,1 +1,1 @@
-# Simulators package
+# sims package

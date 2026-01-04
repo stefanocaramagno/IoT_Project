@@ -12,13 +12,11 @@ class EventCreate(BaseModel):
     timestamp: str
     topic: str
 
-
 class EventRead(EventCreate):
     id: int
 
     class Config:
         orm_mode = True
-
 
 class ActionCreate(BaseModel):
     source_district: str
@@ -26,7 +24,6 @@ class ActionCreate(BaseModel):
     action_type: str
     reason: Optional[str] = None
     event_snapshot: Dict[str, Any]
-
 
 class ActionRead(ActionCreate):
     id: int

@@ -21,7 +21,6 @@ class LLMSettings(BaseModel):
 
         return cls(api_base=api_base, model_name=model_name, timeout_seconds=timeout_seconds)
 
-
 try:
     settings = LLMSettings.from_env()
 except ValidationError as exc:

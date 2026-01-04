@@ -1,3 +1,2 @@
-spade
 paho-mqtt
 requests
