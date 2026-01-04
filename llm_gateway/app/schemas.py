@@ -5,11 +5,6 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
-# -----------------------------
-# Modelli comuni
-# -----------------------------
-
-
 class SensorEventSummary(BaseModel):
     """Rappresentazione compatta di un evento sensore per l'LLM."""
 
@@ -29,11 +24,6 @@ class CityStateEntry(BaseModel):
     other_metrics: Dict[str, float] = Field(default_factory=dict)
 
 
-# -----------------------------
-# /llm/decide_escalation
-# -----------------------------
-
-
 class DecideEscalationRequest(BaseModel):
     district: str
     recent_events: List[SensorEventSummary] = Field(default_factory=list)
@@ -47,11 +37,6 @@ class DecideEscalationResponse(BaseModel):
         description="Severità normalizzata, ad es. 'low', 'medium', 'high'.",
     )
     reason: str = Field(..., description="Breve motivazione in linguaggio naturale.")
-
-
-# -----------------------------
-# /llm/plan_coordination
-# -----------------------------
 
 
 class PlanCoordinationRequest(BaseModel):

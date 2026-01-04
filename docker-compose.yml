@@ -19,10 +19,13 @@ services:
     restart: unless-stopped
     depends_on:
       - mqtt-broker
+      - web-backend
+      - llm-gateway
     environment:
       - MQTT_BROKER_HOST=mqtt-broker
       - MQTT_BROKER_PORT=1883
       - WEB_BACKEND_URL=http://web-backend:8000
+      - LLM_GATEWAY_URL=http://llm-gateway:8000
 
   web-backend:
     build:
@@ -55,11 +58,10 @@ services:
     restart: unless-stopped
     environment:
       - LLM_API_BASE=http://host.docker.internal:11434
-      - LLM_MODEL_NAME=mistral
-      - LLM_TIMEOUT_SECONDS=5
+      - LLM_MODEL_NAME=qwen2.5:0.5b
+      - LLM_TIMEOUT_SECONDS=60
     ports:
       - "8100:8000"
-
 
 volumes:
   mosquitto_data:

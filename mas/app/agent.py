@@ -2,9 +2,10 @@ import logging
 import queue
 import threading
 from dataclasses import dataclass, asdict
-from typing import Any, Dict, Dict as DictType
+from typing import Any, Dict, Dict as DictType, List
 
 from . import persistence
+from . import llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,8 @@ class DistrictMonitoringAgent(threading.Thread):
         self._coordinator_inbox = coordinator_inbox
         self._running = threading.Event()
         self._running.set()
+        self._recent_events: List[SensorEvent] = []
+        self._max_recent_events: int = 20
 
     def run(self) -> None:
         logger.info("Agente di quartiere %s avviato.", self._district)
@@ -93,24 +96,94 @@ class DistrictMonitoringAgent(threading.Thread):
             f"value={event.value} {event.unit} | severity={event.severity}"
         )
 
+        # Persistenza dell'evento grezzo come prima cosa
         event_dict = event.to_dict()
         persistence.persist_sensor_event(event_dict)
 
-        if event.is_critical():
-            logger.warning("EVENTO CRITICO in %s: %s", self._district, base_msg)
+        # Costruzione dei riassunti per l'LLM (solo campi essenziali)
+        recent_summaries = [
+            {
+                "timestamp": e.timestamp,
+                "sensor_type": e.sensor_type,
+                "value": float(e.value),
+                "unit": e.unit,
+                "severity": e.severity,
+            }
+            for e in self._recent_events
+        ]
+        current_summary = {
+            "timestamp": event.timestamp,
+            "sensor_type": event.sensor_type,
+            "value": float(event.value),
+            "unit": event.unit,
+            "severity": event.severity,
+        }
+
+        # Decidiamo se utilizzare l'LLM: in questo esempio solo per severità almeno medium
+        use_llm = event.severity.lower() in {"medium", "high"}
+
+        escalate: bool
+        reason: str
+        normalized_severity = event.severity.lower()
+
+        if use_llm:
+            try:
+                llm_response = llm_client.decide_escalation(
+                    district=self._district,
+                    recent_events=recent_summaries,
+                    current_event=current_summary,
+                )
+                escalate = bool(llm_response.get("escalate", False))
+                normalized_severity = str(
+                    llm_response.get("normalized_severity", normalized_severity)
+                ).lower()
+                reason = str(llm_response.get("reason", "llm_decision"))
+                # Aggiorniamo eventualmente la severità con quella normalizzata
+                event.severity = normalized_severity
+                logger.info(
+                    "Decisione LLM per %s: escalate=%s, normalized_severity=%s, reason=%s",
+                    self._district,
+                    escalate,
+                    normalized_severity,
+                    reason,
+                )
+            except Exception as exc:  # noqa: BLE001
+                # Fallback sicuro: usiamo la regola deterministica originale
+                logger.warning(
+                    "LLM Gateway non disponibile o risposta non valida (%s). "
+                    "Uso regola deterministica basata sulla severità.",
+                    exc,
+                )
+                escalate = event.is_critical()
+                reason = "fallback_rule"
+        else:
+            # Per eventi di severità bassa non interpelliamo l'LLM
+            escalate = event.is_critical()
+            reason = "low_severity_no_llm"
+
+        if escalate:
+            logger.warning("EVENTO CRITICO in %s (decisione LLM=%s): %s", self._district, use_llm, base_msg)
             escalation_msg = Message(
                 msg_type="ESCALATION_REQUEST",
                 source=self._district,
                 target="CityCoordinator",
-                payload={"event": event.to_dict(), "reason": "severity_high"},
+                payload={"event": event.to_dict(), "reason": reason},
             )
             try:
                 self._coordinator_inbox.put_nowait(escalation_msg)
                 logger.info("Inviata ESCALATION_REQUEST da %s al CityCoordinator.", self._district)
             except queue.Full:
-                logger.error("Coda inbox CityCoordinator piena, impossibile inviare escalation da %s.", self._district)
+                logger.error(
+                    "Coda inbox CityCoordinator piena, impossibile inviare escalation da %s.",
+                    self._district,
+                )
         else:
-            logger.info("Evento non critico in %s: %s", self._district, base_msg)
+            logger.info("Evento non critico in %s (decisione LLM=%s): %s", self._district, use_llm, base_msg)
+
+        # Aggiorniamo il buffer degli eventi recenti (dopo l'elaborazione)
+        self._recent_events.append(event)
+        if len(self._recent_events) > self._max_recent_events:
+            self._recent_events.pop(0)
 
     def _handle_control_message(self, msg: Message) -> None:
         if msg.msg_type == "COORDINATION_COMMAND":

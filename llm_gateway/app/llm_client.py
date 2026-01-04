@@ -14,7 +14,9 @@ def _call_ollama_chat(system_prompt: str, user_prompt: str) -> str:
 
     Restituisce il contenuto testuale della risposta del modello.
     """
-    url = settings.api_base.rstrip("/") + "/api/chat"
+    # settings.api_base è un AnyHttpUrl (Pydantic), lo convertiamo esplicitamente a stringa
+    base_url = str(settings.api_base).rstrip("/")
+    url = f"{base_url}/api/chat"
 
     payload: Dict[str, Any] = {
         "model": settings.model_name,
@@ -23,7 +25,6 @@ def _call_ollama_chat(system_prompt: str, user_prompt: str) -> str:
             {"role": "user", "content": user_prompt},
         ],
         "stream": False,
-        # parametri conservativi per avere output più deterministico
         "options": {
             "temperature": 0.1,
         },
@@ -31,11 +32,11 @@ def _call_ollama_chat(system_prompt: str, user_prompt: str) -> str:
 
     try:
         resp = requests.post(url, json=payload, timeout=settings.timeout_seconds)
-    except requests.RequestException as exc:
+    except requests.RequestException as exc:  # noqa: PERF203, BLE001
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Errore di connessione al runtime LLM: {exc}",
-        )
+        ) from exc
 
     if resp.status_code != 200:
         raise HTTPException(
@@ -45,13 +46,12 @@ def _call_ollama_chat(system_prompt: str, user_prompt: str) -> str:
 
     try:
         data = resp.json()
-    except json.JSONDecodeError as exc:
+    except json.JSONDecodeError as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Risposta non valida dal runtime LLM (JSON decode error): {exc}",
-        )
+        ) from exc
 
-    # API /api/chat di Ollama: campo "message" con "content"
     message = data.get("message") or {}
     content = message.get("content")
     if not isinstance(content, str):
@@ -79,29 +79,22 @@ def _extract_json_from_text(text: str) -> Dict[str, Any]:
     json_str = text[start : end + 1]
     try:
         return json.loads(json_str)
-    except json.JSONDecodeError as exc:
+    except json.JSONDecodeError as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"JSON non valido nella risposta del modello: {exc} | raw={json_str!r}",
-        )
-
-
-# -----------------------------
-# Funzioni di alto livello
-# -----------------------------
+        ) from exc
 
 
 def call_llm_for_decide_escalation(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Chiama l'LLM per decidere se effettuare un'escalation.
-
-    Il payload deve essere conforme a DecideEscalationRequest.
-    """
+    """Chiama l'LLM per decidere se effettuare un'escalation."""
     system_prompt = (
         "You are an AI assistant for an urban monitoring multi-agent system. "
         "Your task is to decide whether a local monitoring agent should escalate "
         "a situation to a city coordinator, based on recent sensor events in a district. "
         "You MUST answer strictly in JSON following the schema: "
-        "{\"escalate\": bool, \"normalized_severity\": \"low|medium|high\", \"reason\": string}. "
+        '{"escalate": true or false, "normalized_severity": "low|medium|high", '
+        '"reason": "short explanation"}. '
         "Do not include any explanation outside of the JSON object."
     )
 
@@ -117,16 +110,14 @@ def call_llm_for_decide_escalation(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def call_llm_for_plan_coordination(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Chiama l'LLM per proporre un piano di coordinamento tra quartieri.
-
-    Il payload deve essere conforme a PlanCoordinationRequest.
-    """
+    """Chiama l'LLM per proporre un piano di coordinamento tra quartieri."""
     system_prompt = (
         "You are a coordination planner for an urban multi-agent system. "
         "A district has raised a critical event, and you must propose a coordination "
         "plan involving other districts. "
         "You MUST answer strictly in JSON following the schema: "
-        "{\"plan\": [ {\"target_district\": string, \"action_type\": string, \"reason\": string} ] }. "
+        '{"plan": [ {"target_district": "name", "action_type": "ACTION_CODE", '
+        '"reason": "short explanation"} ] }. '
         "The target_district must always be different from the source district. "
         "Do not include any explanation outside of the JSON object."
     )

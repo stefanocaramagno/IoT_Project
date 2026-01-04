@@ -8,3 +8,4 @@ MQTT_TOPIC_FILTER: str = "city/+/+"
 DISTRICTS = ["quartiere1", "quartiere2"]
 
 WEB_BACKEND_URL: str = os.getenv("WEB_BACKEND_URL", "http://web-backend:8000")
+LLM_GATEWAY_URL: str = os.getenv("LLM_GATEWAY_URL", "http://llm-gateway:8000")
