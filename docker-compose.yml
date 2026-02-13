@@ -1,68 +1,155 @@
+# File: docker-compose.yml
+#
+# Obiettivo
+# ---------
+# Definire l’orchestrazione dei container che compongono l’Urban Monitoring Multi-Agent System (MAS),
+# includendo:
+# - broker MQTT (backbone di messaggistica);
+# - MAS core (agent runtime e logica di coordinamento);
+# - web backend (FastAPI + persistenza SQLite + dashboard);
+# - simulatore di sensori (publisher MQTT);
+# - gateway LLM (proxy verso il modello di linguaggio utilizzato per la pianificazione).
+#
+# Ruolo nel sistema
+# -----------------
+# Questo file costituisce il punto di esecuzione locale dell’intero sistema, garantendo:
+# - avvio coordinato dei servizi in una rete Docker condivisa;
+# - configurazione dei canali di comunicazione (MQTT e HTTP) tra componenti;
+# - persistenza dei dati dove necessario (Mosquitto e SQLite);
+# - esposizione controllata delle porte verso l’host per ispezione e fruizione della dashboard.
+#
+# Note di implementazione
+# -----------------------
+# - La rete è gestita automaticamente da Docker Compose: i container comunicano via nome servizio.
+# - `depends_on` gestisce l’ordine di avvio, non la “readiness” applicativa.
+# - `host.docker.internal` è usato dal gateway LLM per raggiungere un endpoint LLM sull’host.
+#
+
 version: "3.9"
 
 services:
+  # MQTT Broker
   mqtt-broker:
+    # Immagine ufficiale Eclipse Mosquitto v2.x, utilizzata come broker MQTT.
     image: eclipse-mosquitto:2
     container_name: mqtt-broker
+    # Riavvia automaticamente il container a meno che non venga fermato
+    # esplicitamente dall’utente.
     restart: unless-stopped
     ports:
+      # Espone la porta MQTT standard (1883) dell’host verso il container.
+      # Consente a client esterni (es. strumenti di debug) di collegarsi al
+      # broker oltre ai container interni a Docker.
       - "1883:1883"
     volumes:
+      # Monta il file di configurazione Mosquitto personalizzato.
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      # Volume per la persistenza dello stato del broker (retained, queue, ecc.).
       - mosquitto_data:/mosquitto/data
+      # Volume per i log del broker MQTT.
       - mosquitto_log:/mosquitto/log
 
+  # MAS Core (Multi-Agent System)
   mas-core:
+    # Build dell’immagine a partire dalla directory ./mas, che contiene:
+    # - codice degli agenti (CityCoordinator, DistrictMonitoring, router, ecc.);
+    # - dipendenze Python;
+    # - entrypoint che avvia il MAS.
     build:
       context: ./mas
     container_name: mas-core
     restart: unless-stopped
     depends_on:
+      # Il MAS richiede il broker per sottoscriversi e ricevere gli eventi.
       - mqtt-broker
+      # Il MAS persiste eventi e azioni tramite il backend web.
       - web-backend
+      # Il MAS invoca il gateway LLM per ottenere piani di coordinamento.
       - llm-gateway
     environment:
+      # Coordinate di connessione al broker MQTT interno alla rete Docker.
       - MQTT_BROKER_HOST=mqtt-broker
       - MQTT_BROKER_PORT=1883
+      # Endpoint interno per il backend web (FastAPI) utilizzato per persistenza
+      # degli eventi e delle azioni di coordinamento.
       - WEB_BACKEND_URL=http://web-backend:8000
+      # Endpoint interno per il gateway LLM, responsabile di orchestrare le
+      # chiamate al modello di linguaggio (es. Ollama in esecuzione sull’host).
       - LLM_GATEWAY_URL=http://llm-gateway:8000
 
+  # Web Backend (FastAPI + SQLite + Dashboard)
   web-backend:
+    # Build dell’immagine a partire dalla directory ./web, che contiene:
+    # - applicazione FastAPI;
+    # - modelli SQLAlchemy e schemi Pydantic;
+    # - template Jinja2 e file statici (JS, CSS) per la dashboard.
     build:
       context: ./web
     container_name: web-backend
     restart: unless-stopped
     depends_on:
+      # Il backend può opzionalmente usare il broker, ad esempio per estensioni
+      # future di notifica o telemetria; la dipendenza garantisce che il broker
+      # sia avviato prima.
       - mqtt-broker
     ports:
+      # Espone l’API e la dashboard FastAPI sulla porta 8000 dell’host.
+      # Accessibile tipicamente via http://localhost:8000.
       - "8000:8000"
     volumes:
+      # Monta la directory locale ./data nella directory /app/data del container,
+      # in cui risiede il file SQLite (urban_monitoring.db). In questo modo:
+      # - i dati persistono tra riavvii;
+      # - è possibile ispezionare il DB dal filesystem host.
       - ./data:/app/data
 
+  # Simulatore di sensori (publisher MQTT)
   sim-sensors:
+    # Build dell’immagine a partire dalla directory ./sims, che contiene:
+    # - script Python che pubblicano periodicamente eventi su topic MQTT;
+    # - logica per generare valori di traffico, inquinamento, ecc. su distretti.
     build:
       context: ./sims
     container_name: sim-sensors
     restart: unless-stopped
     depends_on:
+      # I simulatori necessitano del broker per pubblicare gli eventi.
       - mqtt-broker
     environment:
+      # Coordinate di connessione al broker MQTT interno.
       - MQTT_BROKER_HOST=mqtt-broker
       - MQTT_BROKER_PORT=1883
+      # Intervallo (in secondi) tra due cicli di pubblicazione consecutivi.
+      # Parametro utile per regolare il carico di eventi generati.
       - PUBLISH_INTERVAL_SECONDS=5
 
+  # LLM Gateway (proxy verso il modello di linguaggio)
   llm-gateway:
+    # Build dell’immagine a partire dalla directory ./llm_gateway, che contiene:
+    # - applicazione FastAPI di gateway;
+    # - logica per costruire prompt e invocare l’LLM esterno;
+    # - gestione dei timeout e delle eventuali strategie di fallback.
     build:
       context: ./llm_gateway
     container_name: llm-gateway
     restart: unless-stopped
     environment:
+      # Base URL dell’API del modello di linguaggio.
+      # Nel setup tipico, punta a un’istanza Ollama in esecuzione sull’host
+      # (host.docker.internal dal punto di vista del container).
       - LLM_API_BASE=http://host.docker.internal:11434
+      # Nome del modello LLM da utilizzare (es. immagine pubblicata in Ollama).
       - LLM_MODEL_NAME=qwen2.5:0.5b
+      # Timeout massimo (in secondi) per le richieste verso l’LLM.
       - LLM_TIMEOUT_SECONDS=60
     ports:
+      # Espone l’API del gateway LLM sulla porta 8100 dell’host, mentre il
+      # servizio in container ascolta sulla porta 8000.
+      # Esempio: http://localhost:8100/...
       - "8100:8000"
 
 volumes:
+  # Volume Docker per i dati persistenti del broker MQTT (stato interno).
   mosquitto_data:
+  # Volume Docker per i log del broker MQTT.
   mosquitto_log:

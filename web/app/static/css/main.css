@@ -1,31 +1,81 @@
+/*
+ * File: main.css
+ *
+ * Obiettivo
+ * ---------
+ * Definire un set minimo di stili globali “cross-page” per la Web UI dell’Urban MAS,
+ * mantenendo TailwindCSS come sorgente primaria del design system e utilizzando questo
+ * file solo per:
+ * - comportamento di scroll fluido (smooth scrolling);
+ * - personalizzazione coerente della scrollbar (WebKit + Firefox) con palette scura.
+ *
+ * Ruolo nel sistema
+ * -----------------
+ * Questo stylesheet è un layer globale di rifinitura, caricato dal layout base (base.html)
+ * e applicato a tutte le pagine della dashboard. Non sostituisce Tailwind, ma introduce
+ * soltanto override e regole non esprimibili in modo uniforme tramite utility classes,
+ * garantendo coerenza visiva tra browser.
+ *
+ * Note di implementazione
+ * -----------------------
+ * - WebKit (Chrome/Edge/Safari) usa pseudo-elementi `::-webkit-scrollbar*`.
+ * - Firefox usa `scrollbar-width` e `scrollbar-color` (granularità inferiore).
+ */
+
+/**
+ * Abilita lo smooth scrolling per navigazione interna e scorrimento programmatico,
+ * rendendo l’esperienza utente più fluida.
+ */
 html,
 body {
   scroll-behavior: smooth;
 }
 
+/**
+ * Definisce spessore della scrollbar verticale e orizzontale nei browser WebKit.
+ */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
+/**
+ * Colore della track (sfondo della scrollbar) coerente con il tema scuro.
+ */
 ::-webkit-scrollbar-track {
-  background: #020617; 
+  background: #020617;
 }
 
+/**
+ * Stile del thumb (la parte trascinabile):
+ * - colore slate scuro;
+ * - bordo molto arrotondato per un look moderno/minimal.
+ */
 ::-webkit-scrollbar-thumb {
-  background-color: #1e293b; 
+  background-color: #1e293b;
   border-radius: 9999px;
 }
 
+/**
+ * Hover sul thumb per aumentare la percezione di interattività,
+ * mantenendo comunque coerenza cromatica.
+ */
 ::-webkit-scrollbar-thumb:hover {
-  background-color: #334155; 
+  background-color: #334155;
 }
 
+/**
+ * Colore dell’angolo (quando sono presenti scrollbar sia verticale che orizzontale).
+ */
 ::-webkit-scrollbar-corner {
-  background: #020617; 
+  background: #020617;
 }
 
+/**
+ * Imposta la scrollbar "thin" e definisce (thumb, track) per Firefox.
+ * Nota: Firefox non supporta la stessa granularità di pseudo-elementi WebKit.
+ */
 * {
-  scrollbar-width: thin;              
-  scrollbar-color: #1e293b #020617;    
+  scrollbar-width: thin;
+  scrollbar-color: #1e293b #020617;
 }

@@ -1,3 +1,40 @@
+"""
+Web Backend (FastAPI) per il progetto Urban Monitoring Multi-Agent System.
+
+Obiettivo
+---------
+Fornire:
+- una dashboard web (HTML) per la visualizzazione in tempo reale/near-real-time di eventi e azioni;
+- pagine di dettaglio (events, actions) con filtri e ricerca testuale;
+- una pagina di analisi "LLM Insights" per distinguere decisioni LLM vs fallback;
+- API REST interne (POST/GET) per la persistenza e consultazione di eventi e azioni.
+
+Ruolo nel sistema
+-----------------
+Questo microservizio funge da “persistence + presentation layer”:
+- riceve dal MAS (tramite `requests`) gli eventi sensoriali e le azioni di coordinamento;
+- persiste su SQLite tramite SQLAlchemy ORM;
+- espone dati e aggregazioni tramite template Jinja2 e endpoint API.
+
+Struttura
+---------
+- Router HTML:
+    - GET /dashboard
+    - GET /events
+    - GET /actions
+    - GET /llm-insights
+- API:
+    - POST /api/events,  GET /api/events
+    - POST /api/actions, GET /api/actions
+
+Note progettuali
+----------------
+- Le aggregazioni e le serie per i grafici vengono preparate lato server e serializzate in JSON,
+  così da essere consumabili facilmente dai template e dal frontend statico.
+- È supportato un filtro temporale opzionale (`window_minutes`) per restringere analisi e grafici
+  ad una finestra recente (min 5, max 240 minuti).
+"""
+
 from datetime import datetime, timedelta
 import json
 
@@ -12,16 +49,23 @@ from . import models, schemas
 from .database import Base, engine, get_db
 
 
+# Creazione tabelle se non esistono (startup-time).
+# In un contesto di progetto/demo, questa strategia elimina la necessità di migrazioni.
 Base.metadata.create_all(bind=engine)
 
+# Istanza applicativa FastAPI.
 app = FastAPI(title="Urban Monitoring MAS - Web Backend")
 
+# Montaggio file statici (CSS/JS/asset) e setup template Jinja2.
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
+
 @app.get("/", include_in_schema=False)
 async def root_redirect():
+  # Redirect iniziale verso la dashboard.
   return RedirectResponse(url="/dashboard")
+
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(
@@ -29,10 +73,28 @@ def dashboard(
   window_minutes: int = 0,
   db: Session = Depends(get_db),
 ):
+  """
+  Dashboard principale del sistema.
 
+  Funzionalità
+  ------------
+  - Indicatori globali: totale eventi, eventi critici, escalation deduplicate, azioni.
+  - Card per distretto: conteggi low/medium/high e ultimo evento.
+  - Tabelle "latest critical events" e "latest actions".
+  - Dataset per grafici (serializzati in JSON):
+      - eventi nel tempo (per severità)
+      - eventi per distretto e severità
+      - pipeline (critical -> escalations -> actions)
+      - distribuzione severità
+      - eventi per tipo sensore e severità
+      - distribuzione tipo sensore
+      - azioni per tipo (top N + Other)
+  - Preview eventi/azioni (ultimi 20) per quick inspection.
+  """
   now_utc = datetime.utcnow()
   time_filtered = window_minutes > 0
 
+  # Se richiesto, applica filtro temporale, clampando la finestra in un range sicuro.
   if time_filtered:
     window_minutes = max(5, min(window_minutes, 240))
     window_start = now_utc - timedelta(minutes=window_minutes)
@@ -43,10 +105,13 @@ def dashboard(
     recent_events_q = db.query(models.Event)
     recent_actions_q = db.query(models.Action)
 
+  # KPI principali (filtrati o globali a seconda del parametro).
   total_events = recent_events_q.count()
   critical_events = recent_events_q.filter(models.Event.severity == "high").count()
   total_actions = recent_actions_q.count()
 
+  # Conteggio “escalations_triggered”:
+  # deduplica in base a (district, timestamp) ricavati dallo snapshot associato alle azioni.
   recent_actions = recent_actions_q.all()
   escalation_keys = set()
   for a in recent_actions:
@@ -60,8 +125,10 @@ def dashboard(
     escalation_keys.add(key)
   escalations_triggered = len(escalation_keys)
 
+  # Elenco distretti presenti nel DB (in base agli eventi).
   districts = [d[0] for d in db.query(models.Event.district).distinct().all() if d[0]]
 
+  # Costruzione card per distretto con “status” calcolato per UI.
   district_cards = []
   for district in districts:
     dq = recent_events_q.filter(models.Event.district == district)
@@ -71,6 +138,7 @@ def dashboard(
     low = dq.filter(models.Event.severity == "low").count()
     last_event = dq.order_by(models.Event.id.desc()).first()
 
+    # Stato derivato (priorità: critical > alert > normal > inactive).
     if high > 0:
       status = "critical"
     elif medium > 0:
@@ -92,16 +160,21 @@ def dashboard(
       }
     )
 
+  # Ultimi eventi critici (high), con eventuale filtro temporale.
   crit_q = db.query(models.Event).filter(models.Event.severity == "high")
   if time_filtered and window_start is not None:
     crit_q = crit_q.filter(models.Event.created_at >= window_start)
   latest_critical_events = crit_q.order_by(models.Event.id.desc()).limit(10).all()
 
+  # Ultime azioni (coordination commands), con eventuale filtro temporale.
   actions_q = db.query(models.Action)
   if time_filtered and window_start is not None:
     actions_q = actions_q.filter(models.Action.created_at >= window_start)
   latest_actions = actions_q.order_by(models.Action.id.desc()).limit(10).all()
 
+  # Finestra temporale per il grafico “events over time”:
+  # - se filtrata: coincide con window_start/window_minutes
+  # - altrimenti: calcolata dall'intervallo dei dati presenti nel DB (clamp max 240 minuti)
   if time_filtered and window_start is not None:
     chart_window_start = window_start
     chart_window_minutes = window_minutes
@@ -114,25 +187,30 @@ def dashboard(
       chart_window_minutes = min(total_minutes, 240)
       chart_window_start = latest_event.created_at - timedelta(minutes=chart_window_minutes)
     else:
+      # Fallback: nessun evento o timestamp non disponibile.
       chart_window_minutes = 60
       chart_window_start = now_utc - timedelta(minutes=chart_window_minutes)
 
+  # Bucketing: si mira ad avere ~6 bucket per una visualizzazione semplice.
   bucket_size_minutes = max(5, chart_window_minutes // 6)
   if bucket_size_minutes == 0:
     bucket_size_minutes = 5
   num_buckets = (chart_window_minutes + bucket_size_minutes - 1) // bucket_size_minutes
 
+  # Label per asse X: timestamp “HH:MM” relativo all’inizio di ciascun bucket.
   labels: list[str] = []
   for i in range(num_buckets):
     bucket_start = chart_window_start + timedelta(minutes=i * bucket_size_minutes)
     labels.append(bucket_start.strftime("%H:%M"))
 
+  # Serie eventi per severità, conteggiati per bucket temporale.
   series = {
     "low": [0] * num_buckets,
     "medium": [0] * num_buckets,
     "high": [0] * num_buckets,
   }
 
+  # Estrazione eventi entro la finestra e assegnazione a bucket.
   chart_events_q = db.query(models.Event).filter(models.Event.created_at >= chart_window_start)
   events_for_chart = chart_events_q.all()
   for e in events_for_chart:
@@ -148,12 +226,14 @@ def dashboard(
       if sev in series:
         series[sev][bucket_index] += 1
 
+  # JSON per grafico “events over time”.
   events_over_time_data = {
     "labels": labels,
     "series": series,
   }
   events_over_time_json = json.dumps(events_over_time_data)
 
+  # Grafico: eventi per distretto e severità (bar/stack).
   district_labels = [d["name"] for d in district_cards]
   district_low = [d["low"] for d in district_cards]
   district_medium = [d["medium"] for d in district_cards]
@@ -169,12 +249,14 @@ def dashboard(
   }
   district_events_json = json.dumps(district_events_data)
 
+  # Grafico “pipeline”: eventi critici -> escalation (deduplicate) -> azioni.
   pipeline_data = {
     "labels": ["Critical events", "Escalations", "Coordinated actions"],
     "values": [critical_events, escalations_triggered, total_actions],
   }
   pipeline_json = json.dumps(pipeline_data)
 
+  # Distribuzione severità (low/medium/high).
   low_events_count = recent_events_q.filter(models.Event.severity == "low").count()
   medium_events_count = recent_events_q.filter(models.Event.severity == "medium").count()
   high_events_count = critical_events
@@ -185,10 +267,12 @@ def dashboard(
   }
   severity_distribution_json = json.dumps(severity_distribution_data)
 
+  # Distinti tipi sensore presenti negli eventi.
   sensor_types = [
     t[0] for t in db.query(models.Event.sensor_type).distinct().all() if t[0]
   ]
 
+  # Grafico: eventi per tipo sensore e severità.
   sensor_labels: list[str] = []
   sensor_low: list[int] = []
   sensor_medium: list[int] = []
@@ -211,6 +295,7 @@ def dashboard(
   }
   events_by_sensor_type_severity_json = json.dumps(sensor_events_data)
 
+  # Distribuzione tipo sensore (conteggio totale eventi per tipo).
   sensor_type_counts = (
     recent_events_q.with_entities(
       models.Event.sensor_type,
@@ -238,6 +323,7 @@ def dashboard(
   }
   sensor_type_distribution_json = json.dumps(sensor_type_distribution_data)
 
+  # Distribuzione azioni per tipo (top 8 + “Other”).
   actions_by_type_rows = (
     recent_actions_q.with_entities(
       models.Action.action_type,
@@ -272,18 +358,21 @@ def dashboard(
   }
   actions_type_json = json.dumps(actions_type_data)
 
+  # Preview ultimi eventi (limit 20).
   events_preview = (
     recent_events_q.order_by(models.Event.id.desc())
     .limit(20)
     .all()
   )
 
+  # Preview ultime azioni (limit 20).
   actions_preview_db = (
     recent_actions_q.order_by(models.Action.id.desc())
     .limit(20)
     .all()
   )
 
+  # Normalizzazione snapshot e costruzione di una stringa sintetica per UI.
   actions_preview = []
   for a in actions_preview_db:
     try:
@@ -323,6 +412,7 @@ def dashboard(
       }
     )
 
+  # Render dashboard template con tutti i dataset già pronti per la UI.
   return templates.TemplateResponse(
     "dashboard.html",
     {
@@ -349,6 +439,7 @@ def dashboard(
     },
   )
 
+
 @app.get("/events", response_class=HTMLResponse)
 def events_page(
   request: Request,
@@ -360,10 +451,22 @@ def events_page(
   limit: int = 0,
   db: Session = Depends(get_db),
 ):
+  """
+  Pagina di consultazione eventi con filtri.
 
+  Filtri supportati
+  -----------------
+  - district: distretto specifico
+  - severity: severità ("low", "medium", "high")
+  - sensor_type: tipo sensore (es. "traffic", "pollution")
+  - q: ricerca testuale (district, sensor_type, topic)
+  - window_minutes: finestra temporale (min 5, max 240) se > 0
+  - limit: se > 0, limita il numero di record mostrati
+  """
   now_utc = datetime.utcnow()
   time_filtered = window_minutes > 0
 
+  # Query base, eventualmente filtrata per finestra temporale.
   if time_filtered:
     window_minutes = max(5, min(window_minutes, 240))
     window_start = now_utc - timedelta(minutes=window_minutes)
@@ -374,12 +477,15 @@ def events_page(
 
   filtered_query = base_query
 
+  # Applicazione filtri espliciti.
   if district:
     filtered_query = filtered_query.filter(models.Event.district == district)
   if severity:
     filtered_query = filtered_query.filter(models.Event.severity == severity)
   if sensor_type:
     filtered_query = filtered_query.filter(models.Event.sensor_type == sensor_type)
+
+  # Ricerca testuale (case-insensitive) su campi selezionati.
   if q:
     like_pattern = f"%{q}%"
     filtered_query = filtered_query.filter(
@@ -390,16 +496,19 @@ def events_page(
       )
     )
 
+  # KPI per la pagina (conteggi).
   filtered_events_count = filtered_query.count()
   filtered_critical_count = filtered_query.filter(models.Event.severity == "high").count()
   total_events_count = db.query(models.Event).count()
 
+  # Ordinamento: eventi più recenti prima. Opzionale limit.
   ordered_query = filtered_query.order_by(models.Event.id.desc())
   if limit > 0:
     events = ordered_query.limit(limit).all()
   else:
     events = ordered_query.all()
 
+  # Valori distinti per popolare le dropdown UI.
   distinct_districts = [d[0] for d in db.query(models.Event.district).distinct().all() if d[0]]
   distinct_severities = [s[0] for s in db.query(models.Event.severity).distinct().all() if s[0]]
   distinct_sensor_types = [t[0] for t in db.query(models.Event.sensor_type).distinct().all() if t[0]]
@@ -426,6 +535,7 @@ def events_page(
     },
   )
 
+
 @app.get("/actions", response_class=HTMLResponse)
 def actions_page(
   request: Request,
@@ -437,10 +547,21 @@ def actions_page(
   limit: int = 0,
   db: Session = Depends(get_db),
 ):
+  """
+  Pagina di consultazione azioni con filtri e statistiche.
 
+  Filtri supportati
+  -----------------
+  - source_district, target_district
+  - action_type
+  - q: ricerca testuale su reason e event_snapshot
+  - window_minutes: finestra temporale (min 5, max 240) se > 0
+  - limit: se > 0, limita il numero di record mostrati
+  """
   now_utc = datetime.utcnow()
   time_filtered = window_minutes > 0
 
+  # Query base, eventualmente filtrata per finestra temporale.
   if time_filtered:
     window_minutes = max(5, min(window_minutes, 240))
     window_start = now_utc - timedelta(minutes=window_minutes)
@@ -451,12 +572,15 @@ def actions_page(
 
   filtered_query = base_query
 
+  # Applicazione filtri espliciti.
   if source_district:
     filtered_query = filtered_query.filter(models.Action.source_district == source_district)
   if target_district:
     filtered_query = filtered_query.filter(models.Action.target_district == target_district)
   if action_type:
     filtered_query = filtered_query.filter(models.Action.action_type == action_type)
+
+  # Ricerca testuale su reason e snapshot (testo JSON serializzato).
   if q:
     like_pattern = f"%{q}%"
     filtered_query = filtered_query.filter(
@@ -468,6 +592,7 @@ def actions_page(
 
   filtered_actions_count = filtered_query.count()
 
+  # Conteggio link distinti (source -> target) tra le azioni filtrate (utile come metrica di “varietà”).
   distinct_links_count = (
     filtered_query.with_entities(
       models.Action.source_district,
@@ -477,6 +602,7 @@ def actions_page(
     .count()
   )
 
+  # Statistica azioni per tipo.
   actions_by_type = (
     filtered_query.with_entities(
       models.Action.action_type,
@@ -488,16 +614,22 @@ def actions_page(
 
   total_actions_count = db.query(models.Action).count()
 
+  # Ordinamento: azioni più recenti prima. Opzionale limit.
   ordered_query = filtered_query.order_by(models.Action.id.desc())
   if limit > 0:
     actions_db = ordered_query.limit(limit).all()
   else:
     actions_db = ordered_query.all()
 
+  # Valori distinti per dropdown UI.
   distinct_sources = [d[0] for d in db.query(models.Action.source_district).distinct().all() if d[0]]
   distinct_targets = [t[0] for t in db.query(models.Action.target_district).distinct().all() if t[0]]
   distinct_action_types = [t[0] for t in db.query(models.Action.action_type).distinct().all() if t[0]]
 
+  # Costruzione “view model” per la tabella:
+  # - parsing snapshot JSON
+  # - estrazione campi utili
+  # - creazione di un summary compatto per quick scan.
   actions_view = []
   for a in actions_db:
     try:
@@ -574,6 +706,7 @@ def actions_page(
     },
   )
 
+
 @app.get("/llm-insights", response_class=HTMLResponse)
 def llm_insights_page(
   request: Request,
@@ -585,10 +718,26 @@ def llm_insights_page(
   limit: int = 0,
   db: Session = Depends(get_db),
 ):
+  """
+  Pagina di analisi “LLM Insights”.
 
+  Obiettivo
+  ---------
+  Evidenziare la quota di azioni generate con supporto LLM rispetto alle azioni generate
+  dal piano deterministico di fallback (identificate tramite `reason`).
+
+  Parametri
+  ---------
+  - origin:
+      - "all": nessun filtro
+      - "llm": esclude le azioni con reason == "support_escalation_fallback"
+      - "fallback": include solo le azioni con reason == "support_escalation_fallback"
+  - filtri (source/target/action_type), window_minutes, limit analoghi alle altre pagine.
+  """
   now_utc = datetime.utcnow()
   time_filtered = window_minutes > 0
 
+  # Query base, eventualmente filtrata per finestra temporale.
   if time_filtered:
     window_minutes = max(5, min(window_minutes, 240))
     window_start = now_utc - timedelta(minutes=window_minutes)
@@ -599,6 +748,7 @@ def llm_insights_page(
 
   filtered_query = base_query
 
+  # Filtri espliciti su attributi dell’azione.
   if source_district:
     filtered_query = filtered_query.filter(models.Action.source_district == source_district)
   if target_district:
@@ -606,6 +756,7 @@ def llm_insights_page(
   if action_type:
     filtered_query = filtered_query.filter(models.Action.action_type == action_type)
 
+  # Filtro “origin”: distingue azioni da LLM vs fallback attraverso la reason.
   if origin == "llm":
     filtered_query = filtered_query.filter(models.Action.reason != "support_escalation_fallback")
   elif origin == "fallback":
@@ -615,12 +766,14 @@ def llm_insights_page(
   filtered_actions = filtered_query.all()
   filtered_actions_count = len(filtered_actions)
 
+  # Classificazione in due insiemi.
   llm_actions = [a for a in filtered_actions if a.reason != "support_escalation_fallback"]
   fallback_actions = [a for a in filtered_actions if a.reason == "support_escalation_fallback"]
 
   llm_actions_count = len(llm_actions)
   fallback_actions_count = len(fallback_actions)
 
+  # Percentuali LLM vs fallback sul set filtrato.
   if filtered_actions_count > 0:
     llm_pct = int(round(llm_actions_count * 100.0 / filtered_actions_count))
     fallback_pct = 100 - llm_pct
@@ -628,6 +781,7 @@ def llm_insights_page(
     llm_pct = 0
     fallback_pct = 0
 
+  # Statistiche per distretto target: quante azioni LLM/fallback lo hanno impattato.
   district_stats_map: dict[str, dict] = {}
   for a in filtered_actions:
     dname = a.target_district or "unknown"
@@ -646,6 +800,7 @@ def llm_insights_page(
   districts_impacted_by_llm = len({a.target_district for a in llm_actions if a.target_district})
   total_districts_with_actions = len({a.target_district for a in filtered_actions if a.target_district})
 
+  # Statistiche per action_type: quante azioni LLM/fallback per ciascun tipo.
   action_type_stats_map: dict[str, dict] = {}
   for a in filtered_actions:
     key = a.action_type or "UNKNOWN"
@@ -661,6 +816,7 @@ def llm_insights_page(
 
   action_type_stats = sorted(action_type_stats_map.values(), key=lambda r: r["action_type"])
 
+  # Lista “decisions”: azioni ordinate per recenza, con campi evento ricavati dallo snapshot.
   ordered_for_decisions = filtered_query.order_by(
     models.Action.created_at.desc(), models.Action.id.desc()
   )
@@ -709,6 +865,7 @@ def llm_insights_page(
       }
     )
 
+  # Valori distinti per filtri UI.
   source_districts = [d[0] for d in db.query(models.Action.source_district).distinct().all() if d[0]]
   target_districts = [d[0] for d in db.query(models.Action.target_district).distinct().all() if d[0]]
   action_types = [t[0] for t in db.query(models.Action.action_type).distinct().all() if t[0]]
@@ -742,8 +899,16 @@ def llm_insights_page(
     },
   )
 
+
 @app.post("/api/events", response_model=schemas.EventRead)
 def create_event(event: schemas.EventCreate, db: Session = Depends(get_db)):
+  """
+  API: crea un evento persistendolo su DB.
+
+  Nota
+  ----
+  Endpoint invocato tipicamente dal MAS (persistence layer) via POST.
+  """
   db_event = models.Event(
     district=event.district,
     sensor_type=event.sensor_type,
@@ -758,12 +923,25 @@ def create_event(event: schemas.EventCreate, db: Session = Depends(get_db)):
   db.refresh(db_event)
   return db_event
 
+
 @app.get("/api/events", response_model=list[schemas.EventRead])
 def list_events(db: Session = Depends(get_db), limit: int = 100):
+  """
+  API: restituisce la lista eventi più recenti, limitata (default 100).
+  """
   return db.query(models.Event).order_by(models.Event.id.desc()).limit(limit).all()
+
 
 @app.post("/api/actions", response_model=schemas.ActionRead)
 def create_action(action: schemas.ActionCreate, db: Session = Depends(get_db)):
+  """
+  API: crea un'azione di coordinamento persistendola su DB.
+
+  Nota
+  ----
+  - event_snapshot viene serializzato in JSON string per storage su DB.
+  - La risposta ActionRead riporta event_snapshot come dict (deserializzato) per comodità consumer.
+  """
   db_action = models.Action(
     source_district=action.source_district,
     target_district=action.target_district,
@@ -785,8 +963,16 @@ def create_action(action: schemas.ActionCreate, db: Session = Depends(get_db)):
     event_snapshot=snapshot_dict,
   )
 
+
 @app.get("/api/actions", response_model=list[schemas.ActionRead])
 def list_actions(db: Session = Depends(get_db), limit: int = 100):
+  """
+  API: restituisce la lista azioni più recenti, limitata (default 100).
+
+  Nota
+  ----
+  event_snapshot viene deserializzato da string JSON a dict per la response.
+  """
   actions = db.query(models.Action).order_by(models.Action.id.desc()).limit(limit).all()
   result: list[schemas.ActionRead] = []
   for a in actions:

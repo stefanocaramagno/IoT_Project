@@ -1,9 +1,73 @@
+{# 
+  Template: events.html
+
+  Obiettivo
+  ---------
+  Implementare la pagina "Events – Event Explorer" del Web Backend (FastAPI + Jinja2), dedicata
+  all’ispezione analitica degli eventi grezzi dei sensori, con:
+  - filtri avanzati (district, severity, sensor_type, window_minutes, q, limit);
+  - KPI sintetici sul risultato filtrato (conteggio eventi, conteggio high, riepilogo filtri attivi);
+  - visualizzazione coerente desktop (tabella) e mobile (card list);
+  - modal di dettaglio per consultare l’evento selezionato in forma completa.
+
+  Ruolo nel sistema
+  -----------------
+  La pagina fornisce una vista “forense/analitica” sui dati raccolti dagli agenti di distretto e
+  persistiti dal Web Backend, risultando essenziale per:
+  - validare che la pipeline di acquisizione eventi stia popolando correttamente il database;
+  - investigare anomalie per distretto, dominio sensore e severità;
+  - verificare la coerenza tra topic MQTT, timestamp e metadati persistiti.
+  I dati sono forniti dal Web Backend tramite endpoint dedicato (GET /events) e possono essere
+  limitati ad una finestra temporale via `window_minutes`.
+
+  Dipendenze UI / JavaScript
+  --------------------------
+  - Lo script `/static/js/events.js`:
+    * intercetta click su righe/carte marcate con `data-event-row`;
+    * apre/chiude la modal `#event-modal`;
+    * popola i campi `dd[data-field="..."]` usando i valori `data-event-*`.
+  - Layout e stile basati su TailwindCSS (caricato nel template base.html).
+
+  Parametri e variabili attese dal template
+  -----------------------------------------
+  Dati generali:
+  - now_utc: datetime
+  - time_filtered: bool
+  - window_minutes: int
+  - limit: int
+  - q: str
+
+  Dataset per i filtri:
+  - districts: list[str]
+  - severities: list[str]
+  - sensor_types: list[str]
+  - selected_district: str|None
+  - selected_severity: str|None
+  - selected_sensor_type: str|None
+
+  KPI e conteggi:
+  - total_events_count: int (totale eventi in DB, indipendente dai filtri)
+  - filtered_events_count: int (conteggio eventi che soddisfano i filtri)
+  - filtered_critical_count: int (conteggio severity = high nel set filtrato)
+
+  Lista risultati:
+  - events: lista di record evento (già filtrati e, se previsto, limitati)
+
+  Note di robustezza e UX
+  -----------------------
+  - Gestione esplicita dei casi “no results” con messaggio informativo e suggerimenti sui filtri.
+  - Badges di severità calcolati lato template per uniformità visiva e riduzione logica client.
+  - `created_at` gestito come opzionale (fallback a “—”).
+  - Gestione unità opzionale nel rendering del valore (value + unit).
+#}
+
 {% extends "base.html" %}
 
 {% block title %}Events · Urban MAS{% endblock %}
 
 {% block content %}
 <section class="space-y-8">
+  <!-- Header pagina: titolo, descrizione e metadati (update + time window) -->
   <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
     <div>
       <h1 class="text-2xl font-semibold tracking-tight text-slate-50 sm:text-3xl">
@@ -14,6 +78,7 @@
       </p>
     </div>
 
+    <!-- Metadati: ultimo aggiornamento e time window corrente -->
     <div class="text-xs text-slate-500 md:text-right">
       <div>
         <span class="font-medium text-slate-400">Last update:</span>
@@ -30,10 +95,12 @@
     </div>
   </div>
 
+  <!-- Form filtri: invia GET /events con query string -->
   <form
     method="get"
     class="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4 text-sm text-slate-200 shadow-sm"
   >
+    <!-- Filtri principali: district + severity + sensor_type + time window -->
     <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
       <div class="flex flex-col gap-1">
         <label for="f-district" class="text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -107,6 +174,7 @@
       </div>
     </div>
 
+    <!-- Filtri secondari: ricerca full-text + limit + CTA -->
     <div class="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto]">
       <div class="flex flex-col gap-1">
         <label for="f-q" class="text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -155,9 +223,11 @@
     </div>
   </form>
 
+  <!-- KPI cards: metriche sintetiche (conteggi + filtri attivi) -->
   <section
     class="grid grid-cols-1 gap-4 text-xs text-slate-300 sm:grid-cols-2 lg:grid-cols-3"
   >
+    <!-- Conteggio eventi filtrati + contesto su limit e totale DB -->
     <div class="rounded-2xl border border-slate-800 bg-slate-900/70 px-3 py-3">
       <div class="text-[0.65rem] uppercase tracking-wide text-slate-500">
         Filtered events
@@ -180,6 +250,7 @@
       </div>
     </div>
 
+    <!-- Conteggio eventi critici (severity = high) nel set filtrato -->
     <div class="rounded-2xl border border-slate-800 bg-slate-900/70 px-3 py-3">
       <div class="text-[0.65rem] uppercase tracking-wide text-slate-500">
         Critical events (severity = high)
@@ -192,6 +263,7 @@
       </div>
     </div>
 
+    <!-- Riepilogo filtri attivi: rende auditabile la configurazione di ricerca -->
     <div class="rounded-2xl border border-slate-800 bg-slate-900/70 px-3 py-3">
       <div class="text-[0.65rem] uppercase tracking-wide text-slate-500">
         Active filters
@@ -241,6 +313,7 @@
     </div>
   </section>
 
+  <!-- Lista eventi: tabella desktop + card list mobile -->
   <section class="space-y-3">
     <header class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-400">
@@ -252,6 +325,7 @@
     </header>
 
     {% if events %}
+      <!-- Vista Desktop: tabella scrollabile con righe cliccabili -->
       <div class="hidden max-h-[640px] overflow-auto rounded-2xl border border-slate-800 bg-slate-950/40 md:block">
         <table class="min-w-full text-left text-xs">
           <thead class="sticky top-0 z-10 bg-slate-900/95 text-[0.65rem] uppercase tracking-wide text-slate-500">
@@ -268,6 +342,7 @@
           </thead>
           <tbody class="divide-y divide-slate-800">
             {% for e in events %}
+              {# Badge severità: mappatura severità → classi colore coerenti con le altre pagine #}
               {% set sev = (e.severity or "")|lower %}
               {% if sev == "high" %}
                 {% set sev_color = "bg-rose-500/15 text-rose-300 ring-rose-500/40" %}
@@ -279,6 +354,10 @@
                 {% set sev_color = "bg-slate-600/20 text-slate-200 ring-slate-500/40" %}
               {% endif %}
 
+              {# 
+                Riga cliccabile: data-event-* usati da events.js per popolare la modal.
+                Si evita una chiamata API aggiuntiva: i dettagli sono già nel DOM.
+              #}
               <tr
                 class="bg-slate-950/40 hover:bg-slate-900/80 cursor-pointer"
                 data-event-row
@@ -334,6 +413,7 @@
         </table>
       </div>
 
+      <!-- Vista Mobile: cards (leggibilità e densità informativa su schermi piccoli) -->
       <div class="space-y-3 md:hidden">
         {% for e in events %}
           {% set sev = (e.severity or "")|lower %}
@@ -347,6 +427,7 @@
             {% set sev_color = "bg-slate-600/20 text-slate-200 ring-slate-500/40" %}
           {% endif %}
 
+          {# Card cliccabile: stessi data-event-* della tabella desktop #}
           <article
             class="cursor-pointer rounded-2xl border border-slate-800 bg-slate-900/70 p-3 shadow-sm"
             data-event-row
@@ -391,6 +472,7 @@
         {% endfor %}
       </div>
     {% else %}
+      <!-- Empty state: nessun evento coerente con i filtri selezionati -->
       <div
         class="rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 p-6 text-center text-sm text-slate-500"
       >
@@ -402,14 +484,18 @@
   </section>
 </section>
 
+<!-- Modal: dettagli evento. Hidden di default, gestita da events.js -->
 <div
   id="event-modal"
   class="fixed inset-0 z-50 hidden flex items-center justify-center px-4"
 >
+  <!-- Overlay: click per chiusura (gestito via data-modal-overlay) -->
   <div
     data-modal-overlay
     class="absolute inset-0 bg-slate-950/80"
   ></div>
+
+  <!-- Contenitore modale -->
   <div
     class="relative z-10 w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900/95 p-5 shadow-xl"
   >
@@ -422,6 +508,8 @@
           Full event data as persisted by the web backend, including timestamp and originating topic.
         </p>
       </div>
+
+      <!-- Pulsante chiusura: gestito via data-modal-close -->
       <button
         type="button"
         data-modal-close
@@ -431,6 +519,7 @@
       </button>
     </header>
 
+    <!-- Campi popolati via JS: dd[data-field="..."] -->
     <div class="space-y-4 text-xs text-slate-300">
       <section class="space-y-2">
         <h4 class="text-[0.7rem] font-semibold uppercase tracking-wide text-slate-500">
@@ -477,5 +566,6 @@
 {% endblock %}
 
 {% block scripts %}
+  {# Script client-side: click su righe/card + apertura/chiusura modal + popolamento campi #}
   <script src="/static/js/events.js"></script>
 {% endblock %}

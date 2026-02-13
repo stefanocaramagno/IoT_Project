@@ -1,9 +1,77 @@
+{# 
+  Template: dashboard.html
+
+  Obiettivo
+  ---------
+  Implementare la pagina "Dashboard" del Web Backend (FastAPI + Jinja2), fornendo una vista unificata
+  dell’intera città (tutti i distretti) e concentrando:
+  - KPI principali (eventi totali, eventi critici, escalation, azioni coordinate);
+  - stato sintetico per distretto (card con conteggi per severità e ultimo evento disponibile);
+  - sezione analitica con grafici (Chart.js) alimentati da dataset JSON preparati lato server;
+  - anteprima delle ultime attività (eventi e azioni, fino a 20 righe ciascuna).
+
+  Ruolo nel sistema
+  -----------------
+  La pagina rappresenta il punto di ingresso principale della UI “operativa” e sintetizza:
+  - il carico di eventi generato dagli agenti di distretto (sensor events);
+  - la presenza di situazioni critiche (severity = high) e relative escalation;
+  - l’output del coordinamento (azioni emesse dal CityCoordinator).
+  I dati vengono prodotti lato Web Backend tramite endpoint dedicato (GET /dashboard), con possibilità
+  di applicare una finestra temporale tramite parametro `window_minutes`.
+
+  Dipendenze UI / JavaScript
+  --------------------------
+  - Chart.js è caricato via CDN nel blocco `{% block scripts %}`.
+  - Lo script `/static/js/dashboard.js`:
+    * intercetta il cambio della select `window_minutes` e invia automaticamente il form;
+    * legge i dataset JSON dagli attributi `data-chart` dei canvas;
+    * inizializza i grafici Chart.js sulle rispettive aree.
+  - Layout e stile basati su TailwindCSS (caricato nel template base.html).
+
+  Parametri e variabili attese dal template
+  -----------------------------------------
+  - now_utc: datetime (ultimo aggiornamento, mostrato in header).
+  - window_minutes: int (finestra temporale selezionata in minuti; 0 = all time).
+  - time_filtered: bool (true se window_minutes > 0).
+
+  KPI:
+  - total_events: int
+  - critical_events: int (severity = "high")
+  - escalations_triggered: int (conteggio situazioni critiche distinte che hanno generato escalation)
+  - total_actions: int (azioni coordinate persistite)
+
+  Distretto (cards):
+  - district_cards: lista di record con chiavi:
+    * name, status, total, high, medium, low, last_event
+    * last_event (se presente): sensor_type, severity, timestamp
+
+  Preview:
+  - events_preview: lista degli ultimi eventi (max 20) nel contesto temporale selezionato
+  - actions_preview: lista delle ultime azioni (max 20) nel contesto temporale selezionato
+
+  Dataset per grafici (stringhe JSON marcate safe):
+  - events_over_time_json
+  - severity_distribution_json
+  - events_by_district_severity_json
+  - sensor_type_distribution_json
+  - events_by_sensor_type_severity_json
+  - critical_pipeline_json
+  - actions_by_type_json
+
+  Note di robustezza e UX
+  -----------------------
+  - Gestione esplicita dei casi “no data” (nessun evento/azione/distretto attivo).
+  - Badge (stato distretto, severità, tipo azione) calcolati lato template per ridurre logica client.
+  - Tabelle di preview scrollabili con header sticky per preservare leggibilità su dataset densi.
+#}
+
 {% extends "base.html" %}
 
 {% block title %}Dashboard · Urban MAS{% endblock %}
 
 {% block content %}
 <section class="space-y-8">
+  <!-- Header pagina: titolo + descrizione + selettore finestra temporale -->
   <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
     <div>
       <h1 class="text-2xl font-semibold tracking-tight text-slate-50 sm:text-3xl">
@@ -14,6 +82,7 @@
       </p>
     </div>
 
+    <!-- Form GET: consente di filtrare la dashboard per finestra temporale -->
     <form
       method="get"
       class="flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-300 shadow-sm md:flex-row md:items-center"
@@ -41,6 +110,7 @@
     </form>
   </div>
 
+  <!-- KPI cards: metriche sintetiche di città -->
   <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
     <article
       class="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-4 shadow-sm"
@@ -146,6 +216,7 @@
     </article>
   </div>
 
+  <!-- Stato per distretto: card con severità e ultimo evento -->
   <section class="space-y-3">
     <header class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-400">
@@ -159,6 +230,7 @@
     <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
       {% if district_cards %}
         {% for d in district_cards %}
+          {# Mapping stato → badge (colore + label) #}
           {% if d.status == "critical" %}
             {% set badge_color = "bg-rose-500/10 text-rose-300 ring-rose-500/40" %}
             {% set status_label = "Critical" %}
@@ -246,10 +318,11 @@
     </div>
   </section>
 
+  <!-- Sezione analitica: grafici Chart.js -->
   <section class="space-y-3">
     <header class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-400">
-        Events & coordination analytics
+        Events &amp; coordination analytics
       </h2>
       <p class="text-xs text-slate-500">
         Visual overview of event load, severity levels, sensor domains and coordinated responses across the city.
@@ -425,6 +498,7 @@
     </div>
   </section>
 
+  <!-- Anteprima attività: ultime righe di events/actions -->
   <section class="space-y-3">
     <header class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-400">
@@ -648,6 +722,9 @@
 {% endblock %}
 
 {% block scripts %}
+  <!-- Chart.js: libreria per la generazione dei grafici nella dashboard -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Script applicativo: parsing dataset dai canvas (data-chart) e inizializzazione grafici -->
   <script src="/static/js/dashboard.js"></script>
 {% endblock %}

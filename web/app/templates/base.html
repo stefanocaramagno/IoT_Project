@@ -1,15 +1,62 @@
+{# 
+  Template: base.html
+
+  Obiettivo
+  ---------
+  Definire il layout comune (base layout) per tutte le pagine del Web Backend basato su Jinja2:
+  - struttura HTML di base (head + body);
+  - inclusione TailwindCSS via CDN e stylesheet locale;
+  - header fisso con branding e navigazione (desktop e mobile);
+  - area <main> con blocco Jinja `{% block content %}` per il contenuto specifico delle pagine;
+  - footer comune;
+  - inclusione degli script JavaScript condivisi e hook per script specifici di pagina.
+
+  Ruolo nel sistema
+  -----------------
+  Questo template viene esteso dalle pagine specifiche (es. dashboard.html, events.html, actions.html, llm_insights.html)
+  tramite `{% extends "base.html" %}`.
+  Centralizza la coerenza dell’interfaccia, evitando duplicazioni e garantendo uniformità di:
+  - struttura, navigazione e responsive behavior;
+  - caricamento risorse (CSS/JS) condivise;
+  - convenzioni di layout e spacing.
+
+  Responsività e comportamento client-side
+  ---------------------------------------
+  - Navbar desktop: visibile da breakpoint `md` in su.
+  - Navbar mobile: pulsante (hamburger) visibile sotto `md`.
+  - Apertura/chiusura menu mobile gestita da `/static/js/base.js` tramite:
+    * toggle id `mobile-menu-toggle`
+    * menu id `mobile-menu`
+    * aggiornamento attributo aria-expanded.
+
+  Note di implementazione
+  -----------------------
+  - TailwindCSS via CDN: soluzione pragmatica e adeguata a prototipi / consegne accademiche.
+  - `/static/css/main.css`: override minimi (es. scrollbar) senza introdurre pipeline di build.
+  - `{% block scripts %}`: consente a ogni pagina figlia di caricare JS dedicato senza duplicare layout.
+#}
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
+    <!-- Metadati e base document -->
     <meta charset="UTF-8" />
     <title>{% block title %}Urban MAS Dashboard{% endblock %}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- TailwindCSS via CDN (rapid prototyping / no build step) -->
     <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Foglio di stile locale (override / piccoli aggiustamenti UI) -->
     <link rel="stylesheet" href="/static/css/main.css" />
   </head>
+
+  <!-- Layout: pagina full-height con header fixed, main scrollabile e footer in basso -->
   <body class="min-h-screen bg-slate-950 text-slate-100 antialiased flex flex-col">
+    <!-- Header fixed: branding + navigazione desktop/mobile -->
     <header class="fixed inset-x-0 top-0 z-40 border-b border-slate-800 bg-slate-950/80 backdrop-blur">
       <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+        <!-- Branding / titolo applicazione -->
         <div class="flex items-center gap-3">
           <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/30">
             <span class="text-lg font-semibold">UM</span>
@@ -24,6 +71,7 @@
           </div>
         </div>
 
+        <!-- Navbar desktop: visibile da md in su -->
         <nav class="hidden items-center gap-6 text-sm font-medium text-slate-300 md:flex">
           <a href="/dashboard" class="hover:text-emerald-400 transition">Dashboard</a>
           <a href="/events" class="hover:text-emerald-400 transition">Events</a>
@@ -31,6 +79,7 @@
           <a href="/llm-insights" class="hover:text-emerald-400 transition">LLM Insights</a>
         </nav>
 
+        <!-- Toggle menu mobile: visibile sotto md -->
         <button
           type="button"
           id="mobile-menu-toggle"
@@ -41,6 +90,7 @@
         </button>
       </div>
 
+      <!-- Menu mobile: nascosto di default, visibile quando togglato via JS -->
       <div
         id="mobile-menu"
         class="hidden border-t border-slate-800 bg-slate-950/95 px-4 py-3 text-sm text-slate-200 md:hidden"
@@ -54,10 +104,12 @@
       </div>
     </header>
    
+    <!-- Main content: padding-top per compensare l'header fixed -->
     <main class="mx-auto max-w-7xl w-full px-4 pt-20 pb-6 sm:px-6 lg:px-8 flex-1">
       {% block content %}{% endblock %}
     </main>
 
+    <!-- Footer: informativo, coerente con il tema scuro -->
     <footer class="mt-auto border-t border-slate-800 bg-slate-950/80">
       <div
         class="mx-auto flex max-w-7xl flex-col gap-1 px-4 py-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8"
@@ -71,7 +123,10 @@
       </div>
     </footer>
 
+    <!-- Script globale: gestione navbar mobile (toggle) e comportamenti condivisi -->
     <script src="/static/js/base.js"></script>
+
+    <!-- Hook per script specifici di pagina -->
     {% block scripts %}{% endblock %}
   </body>
 </html>
